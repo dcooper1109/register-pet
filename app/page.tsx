@@ -1,65 +1,286 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
 
 export default function Home() {
+  const [addForm, setAddForm] = useState({
+    partnerName: "FairShare",
+    affinityGroup: "Dan Test Co",
+    memberFirst: "",
+    memberLast: "",
+    memberSubID: "",
+    memberEmail: "",
+    memberPhone: "",
+    petName: "",
+    petSpecies: "",
+    petBreed: "",
+    petSex: "",
+  });
+
+  const [cancelForm, setCancelForm] = useState({
+    partnerName: "FairShare",
+    memberLast: "",
+    memberSubID: "",
+    petName: "",
+    cancelService: "",
+  });
+
+  const [result, setResult] = useState("No request sent yet.");
+  const [isError, setIsError] = useState(false);
+
+  async function runAction(action: string, payload: object) {
+     if (!validate(action)) {
+      return;
+    }
+    
+    setIsError(false);
+    setResult("Sending request...");
+
+    try {
+      const response = await fetch("/api/pet-service", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, payload }),
+      });
+
+      const data = await response.json();
+
+      setIsError(!response.ok);
+      setResult(JSON.stringify(data, null, 2));
+    } catch (err) {
+      setIsError(true);
+      setResult(err instanceof Error ? err.message : "Unknown error");
+    }
+  }
+
+  function updateAddForm(field: string, value: string) {
+    setAddForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function updateCancelForm(field: string, value: string) {
+    setCancelForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function validate(action: string) {
+    if (action === "addMemberAndPet") {
+      const required = [
+        ["Partner Name", addForm.partnerName],
+        ["Affinity Group", addForm.affinityGroup],
+        ["Member First", addForm.memberFirst],
+        ["Member Last", addForm.memberLast],
+        ["Member Subscription ID", addForm.memberSubID],
+        ["Member Email", addForm.memberEmail],
+        ["Mobile Phone", addForm.memberPhone],
+        ["Pet Name", addForm.petName],
+        ["Pet Species", addForm.petSpecies],
+        ["Pet Sex", addForm.petSex],
+      ];
+
+      const missing = required
+        .filter(([_, value]) => !value.trim())
+        .map(([name]) => name);
+
+      if (missing.length > 0) {
+        setIsError(true);
+        setResult(
+          "Please complete required fields:\n\n" +
+          missing.join("\n")
+        );
+        return false;
+      }
+    }
+
+    if (
+      action === "removePet" ||
+      action === "cancelService" ||
+      action === "reactivateService"
+    ) {
+      const required = [
+        ["Partner Name", cancelForm.partnerName],
+        ["Member Last", cancelForm.memberLast],
+        ["Member Subscription ID", cancelForm.memberSubID],
+      ];
+
+      const missing = required
+        .filter(([_, value]) => !value.trim())
+        .map(([name]) => name);
+
+      if (missing.length > 0) {
+        setIsError(true);
+        setResult(
+          "Please complete required fields:\n\n" +
+          missing.join("\n")
+        );
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <main style={pageStyle}>
+      <h1>Pet Service Test Page</h1>
+
+      <section style={cardStyle}>
+        <h2>Add Member and/or Pet</h2>
+
+        <Input required label="Partner Name" value={addForm.partnerName} onChange={(v) => updateAddForm("partnerName", v)} />
+        <Input required label="Affinity Group" value={addForm.affinityGroup} onChange={(v) => updateAddForm("affinityGroup", v)} />
+        <Input required label="Member First" value={addForm.memberFirst} onChange={(v) => updateAddForm("memberFirst", v)} />
+        <Input required label="Member Last" value={addForm.memberLast} onChange={(v) => updateAddForm("memberLast", v)} />
+        <Input required label="Member Subscription ID" value={addForm.memberSubID} onChange={(v) => updateAddForm("memberSubID", v)} />
+        <Input required label="Member Email" value={addForm.memberEmail} onChange={(v) => updateAddForm("memberEmail", v)} />
+        <Input required label="Mobile Phone" value={addForm.memberPhone} onChange={(v) => updateAddForm("memberPhone", v)} />
+        <Input required label="Pet Name" value={addForm.petName} onChange={(v) => updateAddForm("petName", v)} />
+        <Input required label="Pet Species" value={addForm.petSpecies} onChange={(v) => updateAddForm("petSpecies", v)} />
+        <Input label="Pet Breed" value={addForm.petBreed} onChange={(v) => updateAddForm("petBreed", v)} />
+        <Input required label="Pet Sex" value={addForm.petSex} onChange={(v) => updateAddForm("petSex", v)} />
+
+        <button
+          style={primaryButtonStyle}
+          onClick={() => runAction("addMemberAndPet", addForm)}
+        >
+          Add Member / Pet
+        </button>
+      </section>
+
+      <section style={cardStyle}>
+        <h2>Cancel Service or Pet</h2>
+
+        <Input required label="Partner Name" value={cancelForm.partnerName} onChange={(v) => updateCancelForm("partnerName", v)} />
+        <Input required label="Member Last Name" value={cancelForm.memberLast} onChange={(v) => updateCancelForm("memberLast", v)} />
+        <Input required label="Member Subscription ID" value={cancelForm.memberSubID} onChange={(v) => updateCancelForm("memberSubID", v)} />
+        <Input label="Pet Name" value={cancelForm.petName} onChange={(v) => updateCancelForm("petName", v)} />
+
+        <label style={labelStyle}>Cancel Service</label>
+        <select
+          value={cancelForm.cancelService}
+          onChange={(e) => updateCancelForm("cancelService", e.target.value)}
+          style={inputStyle}
+        >
+          <option value="">Blank - cancel pet only</option>
+          <option value="Y">Y - cancel all services</option>
+          <option value="N">N - reactivate all services</option>
+        </select>
+
+        <button
+          style={dangerButtonStyle}
+          onClick={() => {
+            const action =
+              cancelForm.cancelService === ""
+                ? "removePet"
+                : cancelForm.cancelService === "Y"
+                ? "cancelService"
+                : "reactivateService";
+
+            const payload =
+              cancelForm.cancelService === ""
+                ? { ...cancelForm, cancelService: "" }
+                : { ...cancelForm, petName: "" };
+
+            runAction(action, payload);
+          }}
+        >
+          Submit Cancellation / Reactivation
+        </button>
+      </section>
+
+      <h2>API Response</h2>
+
+      <pre
+        style={{
+          ...responseStyle,
+          color: isError ? "red" : "green",
+        }}
+      >
+        {result}
+      </pre>
+    </main>
+  );
+}
+
+function Input({
+  label,
+  value,
+  onChange,
+  required = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label style={labelStyle}>
+        {label}
+        {required && (
+          <span style={{ color: "red" }}> *</span>
+        )}
+      </label>
+      <input
+        value={value}
+        placeholder={`Enter ${label}`}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle}
+      />
     </div>
   );
 }
+
+const pageStyle = {
+  maxWidth: 900,
+  margin: "40px auto",
+  fontFamily: "Arial",
+  padding: 20,
+};
+
+const cardStyle = {
+  border: "2px solid #ccc",
+  borderRadius: 12,
+  padding: 24,
+  marginBottom: 28,
+  backgroundColor: "#ffffff",
+};
+
+const labelStyle = {
+  display: "block",
+  fontWeight: "bold",
+  marginBottom: 4,
+};
+
+const inputStyle = {
+  width: "100%",
+  padding: 10,
+  fontSize: 16,
+  marginBottom: 8,
+  border: "1px solid #888",
+  borderRadius: 6,
+  backgroundColor: "#ffffff",
+  color: "#111111",
+};
+
+const primaryButtonStyle = {
+  marginTop: 12,
+  padding: "12px 20px",
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const dangerButtonStyle = {
+  marginTop: 12,
+  padding: "12px 20px",
+  fontSize: 16,
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+const responseStyle = {
+  background: "#f4f4f4",
+  padding: 15,
+  whiteSpace: "pre-wrap",
+  borderRadius: 8,
+  fontWeight: "bold",
+};
