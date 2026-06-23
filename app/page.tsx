@@ -121,7 +121,7 @@ export default function Home() {
 
         setTimeout(() => {
           window.location.href = "https://purchase.petvantagerx.com";
-        }, 10000); // 10 seconds
+        }, 5000); // 10 seconds
       } else {
         setResult(data.message || data.error || "Request failed.");
       }
