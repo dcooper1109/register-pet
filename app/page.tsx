@@ -7,21 +7,49 @@ function generateSubscriptionId() {
   return `PRX${Date.now()}${Math.floor(Math.random() * 1000)}`;
 }
 
+type Pet = {
+  petName: string;
+  petSpecies: string;
+  petBreed: string;
+  petSex: string;
+};
+
+const blankPet: Pet = {
+  petName: "",
+  petSpecies: "",
+  petBreed: "",
+  petSex: "",
+};
+
+function getRequiredPetCount(subscriptionType: string) {
+  if (subscriptionType === "One Pet") return 1;
+  if (subscriptionType === "Two Pets") return 2;
+  if (subscriptionType === "3 or More Pets") return 3;
+  return 1;
+}
+
+function buildPets(count: number, existingPets: Pet[] = []) {
+  return Array.from({ length: count }, (_, index) => ({
+    ...blankPet,
+    ...(existingPets[index] || {}),
+  }));
+}
+
 export default function Home() {
   const [addForm, setAddForm] = useState({
-    partnerName: "FairShare",
-    affinityGroup: "Dan Test Co",
+    partnerName: "Direct Registration",
+    affinityGroup: "D2C",
     subscriptionType: "One Pet",
     memberFirst: "",
     memberLast: "",
     memberSubID: "",
     memberEmail: "",
     memberPhone: "",
-    petName: "",
-    petSpecies: "",
-    petBreed: "",
-    petSex: "",
   });
+
+  const [pets, setPets] = useState<Pet[]>(buildPets(1));
+  const [result, setResult] = useState("No request sent yet.");
+  const [isError, setIsError] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -32,8 +60,15 @@ export default function Home() {
     const lastName = params.get("utm_id")?.trim() || "";
 
     if (!partnerName || !affinityGroup) {
-      setIsError(true);
-      setResult("Missing required URL parameters: utm_source and/or utm_medium");
+      setAddForm((prev) => ({
+        ...prev,
+        partnerName: prev.partnerName || "Direct Registration",
+        affinityGroup: prev.affinityGroup || "D2C",
+        memberSubID: generateSubscriptionId(),
+      }));
+
+      setIsError(false);
+      setResult("No request sent yet.");
       return;
     }
 
@@ -56,14 +91,19 @@ export default function Home() {
     }));
   }, []);
 
-  const [result, setResult] = useState("No request sent yet.");
-  const [isError, setIsError] = useState(false);
-
-  async function runAction(action: string, payload: object) {
+  async function runAction(action: string) {
     if (!validate(action)) return;
 
     setIsError(false);
     setResult("Sending request...");
+
+    const firstPet = pets[0] || blankPet;
+
+    const payload = {
+      ...addForm,
+      mobilePhone: addForm.memberPhone,
+      pets,
+    };
 
     try {
       const response = await fetch("/api/pet-service", {
@@ -75,7 +115,16 @@ export default function Home() {
       const data = await response.json();
 
       setIsError(!response.ok);
-      setResult(JSON.stringify(data, null, 2));
+
+      if (response.ok && data.success) {
+        setResult("Member/Pet(s) successfully added. Redirecting to login...");
+
+        setTimeout(() => {
+          window.location.href = "https://purchase.petvantagerx.com";
+        }, 10000); // 10 seconds
+      } else {
+        setResult(data.message || data.error || "Request failed.");
+      }
     } catch (err) {
       setIsError(true);
       setResult(err instanceof Error ? err.message : "Unknown error");
@@ -86,26 +135,84 @@ export default function Home() {
     setAddForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function handleSubscriptionTypeChange(value: string) {
+    const requiredPetCount = getRequiredPetCount(value);
+
+    setAddForm((prev) => ({ ...prev, subscriptionType: value }));
+    setPets((prevPets) => buildPets(requiredPetCount, prevPets));
+  }
+
+  function updatePet(index: number, field: keyof Pet, value: string) {
+    setPets((prevPets) => {
+      const updatedPets = [...prevPets];
+      updatedPets[index] = {
+        ...updatedPets[index],
+        [field]: value,
+      };
+      return updatedPets;
+    });
+  }
+
+  function addPet() {
+    setPets((prevPets) => [...prevPets, { ...blankPet }]);
+  }
+
+  function removePet(index: number) {
+    const requiredPetCount = getRequiredPetCount(addForm.subscriptionType);
+
+    setPets((prevPets) => {
+      if (prevPets.length <= requiredPetCount) return prevPets;
+      return prevPets.filter((_, petIndex) => petIndex !== index);
+    });
+  }
+
   function validate(action: string) {
     if (action === "addMemberAndPet") {
       const required = [
         ["Partner Name", addForm.partnerName],
         ["Affinity Group", addForm.affinityGroup],
         ["Member Subscription ID", addForm.memberSubID],
+        ["Subscription Type", addForm.subscriptionType],
         ["Member First", addForm.memberFirst],
         ["Member Last", addForm.memberLast],
         ["Member Email", addForm.memberEmail],
         ["Mobile Phone", addForm.memberPhone],
-        ["Pet Name", addForm.petName],
-        ["Pet Species", addForm.petSpecies],
-        ["Pet Sex", addForm.petSex],
       ];
 
-      const missing = required.filter(([_, value]) => !value.trim()).map(([name]) => name);
+      const missing = required
+        .filter(([_, value]) => !value.trim())
+        .map(([name]) => name);
 
-      if (missing.length > 0) {
+      const requiredPetCount = getRequiredPetCount(addForm.subscriptionType);
+      const incompletePets: number[] = [];
+
+      pets.slice(0, requiredPetCount).forEach((pet, index) => {
+        if (
+          !pet.petName.trim() ||
+          !pet.petSpecies.trim() ||
+          !pet.petSex.trim()
+        ) {
+          incompletePets.push(index + 1);
+        }
+      });
+
+      if (missing.length > 0 || incompletePets.length > 0) {
         setIsError(true);
-        setResult("Please complete required fields:\n\n" + missing.join("\n"));
+
+        let message = "Please complete required fields:";
+
+        if (missing.length > 0) {
+          message += "\n\n" + missing.join("\n");
+        }
+
+        if (incompletePets.length > 0) {
+          message +=
+            "\n\nComplete Pet Name, Pet Species, and Pet Sex for Pet Information " +
+            incompletePets.join(", ") +
+            ".";
+        }
+
+        setResult(message);
         return false;
       }
     }
@@ -130,7 +237,7 @@ export default function Home() {
             height={130}
             priority
             style={{
-               height: "auto",
+              height: "auto",
             }}
           />
 
@@ -142,57 +249,81 @@ export default function Home() {
         <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>Add Member and/or Pet</h2>
 
-        <h3 style={subSectionTitleStyle}>Member Information</h3>
+          <h3 style={subSectionTitleStyle}>Member Information</h3>
 
-        <div style={gridStyle}>
-          <Input required label="Partner Name" value={addForm.partnerName} onChange={(v) => updateAddForm("partnerName", v)} />
-          <Input required label="Affinity Group" value={addForm.affinityGroup} onChange={(v) => updateAddForm("affinityGroup", v)} />
-          <Input required label="Member Subscription ID" value={addForm.memberSubID} onChange={(v) => updateAddForm("memberSubID", v)} />
+          <div style={gridStyle}>
+            <Input required label="Partner Name" value={addForm.partnerName} onChange={(v) => updateAddForm("partnerName", v)} />
+            <Input required label="Affinity Group" value={addForm.affinityGroup} onChange={(v) => updateAddForm("affinityGroup", v)} />
+            <Input required label="Member Subscription ID" value={addForm.memberSubID} onChange={(v) => updateAddForm("memberSubID", v)} />
 
-          <div>
-            <label style={labelStyle}>Subscription Type</label>
-            <select
-              value={addForm.subscriptionType}
-              onChange={(e) => updateAddForm("subscriptionType", e.target.value)}
-              style={inputStyle}
-            >
-              <option value="One Pet">One Pet</option>
-              <option value="Two Pets">Two Pets</option>
-              <option value="3 or More Pets">3 or More Pets</option>
-            </select>
+            <div>
+              <label style={labelStyle}>Subscription Type</label>
+              <select
+                value={addForm.subscriptionType}
+                onChange={(e) => handleSubscriptionTypeChange(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="One Pet">One Pet</option>
+                <option value="Two Pets">Two Pets</option>
+                <option value="3 or More Pets">3 or More Pets</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Price</label>
+              <input
+                value={getSubscriptionPrice(addForm.subscriptionType)}
+                readOnly
+                style={{
+                  ...inputStyle,
+                  fontWeight: "bold",
+                  backgroundColor: "#f9fafb",
+                }}
+              />
+            </div>
+
+            <Input required label="Member First" value={addForm.memberFirst} onChange={(v) => updateAddForm("memberFirst", v)} />
+            <Input required label="Member Last" value={addForm.memberLast} onChange={(v) => updateAddForm("memberLast", v)} />
+            <Input required label="Member Email" value={addForm.memberEmail} onChange={(v) => updateAddForm("memberEmail", v)} />
+            <Input required label="Mobile Phone" value={addForm.memberPhone} onChange={(v) => updateAddForm("memberPhone", v)} />
           </div>
 
-          <div>
-            <label style={labelStyle}>Price</label>
-            <input
-              value={getSubscriptionPrice(addForm.subscriptionType)}
-              readOnly
-              style={{
-                ...inputStyle,
-                fontWeight: "bold",
-                backgroundColor: "#f9fafb",
-              }}
-            />
-          </div>
+          <div style={sectionDividerStyle} />
 
-          <Input required label="Member First" value={addForm.memberFirst} onChange={(v) => updateAddForm("memberFirst", v)} />
-          <Input required label="Member Last" value={addForm.memberLast} onChange={(v) => updateAddForm("memberLast", v)} />
-          <Input required label="Member Email" value={addForm.memberEmail} onChange={(v) => updateAddForm("memberEmail", v)} />
-          <Input required label="Mobile Phone" value={addForm.memberPhone} onChange={(v) => updateAddForm("memberPhone", v)} />
-        </div>
+          <h3 style={subSectionTitleStyle}>Pet Information</h3>
 
-        <div style={sectionDividerStyle} />
+          {pets.map((pet, index) => (
+            <div key={index} style={petCardStyle}>
+              <div style={petHeaderStyle}>
+                <h4 style={petTitleStyle}>Pet Information {index + 1}</h4>
 
-        <h3 style={subSectionTitleStyle}>Pet Information</h3>
+                {pets.length > getRequiredPetCount(addForm.subscriptionType) && (
+                  <button
+                    type="button"
+                    style={removePetButtonStyle}
+                    onClick={() => removePet(index)}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
 
-        <div style={gridStyle}>
-          <Input required label="Pet Name" value={addForm.petName} onChange={(v) => updateAddForm("petName", v)} />
-          <Input required label="Pet Species" value={addForm.petSpecies} onChange={(v) => updateAddForm("petSpecies", v)} />
-          <Input label="Pet Breed" value={addForm.petBreed} onChange={(v) => updateAddForm("petBreed", v)} />
-          <Input required label="Pet Sex" value={addForm.petSex} onChange={(v) => updateAddForm("petSex", v)} />
-        </div>
+              <div style={gridStyle}>
+                <Input required label="Pet Name" value={pet.petName} onChange={(v) => updatePet(index, "petName", v)} />
+                <Input required label="Pet Species" value={pet.petSpecies} onChange={(v) => updatePet(index, "petSpecies", v)} />
+                <Input label="Pet Breed" value={pet.petBreed} onChange={(v) => updatePet(index, "petBreed", v)} />
+                <Input required label="Pet Sex" value={pet.petSex} onChange={(v) => updatePet(index, "petSex", v)} />
+              </div>
+            </div>
+          ))}
 
-          <button style={primaryButtonStyle} onClick={() => runAction("addMemberAndPet", addForm)}>
+          {addForm.subscriptionType === "3 or More Pets" && (
+            <button type="button" style={secondaryButtonStyle} onClick={addPet}>
+              Add Another Pet
+            </button>
+          )}
+
+          <button style={primaryButtonStyle} onClick={() => runAction("addMemberAndPet")}>
             Add Member / Pet
           </button>
         </section>
@@ -281,12 +412,6 @@ const titleStyle: React.CSSProperties = {
   color: "#1B2A41",
 };
 
-const subtitleStyle: React.CSSProperties = {
-  margin: 0,
-  color: "#4b5563",
-  fontSize: 16,
-};
-
 const accentLineStyle: React.CSSProperties = {
   height: 5,
   width: "100%",
@@ -362,13 +487,48 @@ const primaryButtonStyle: React.CSSProperties = {
 
 const secondaryButtonStyle: React.CSSProperties = {
   ...primaryButtonStyle,
+  marginRight: 12,
   backgroundColor: navy,
   boxShadow: "0 4px 12px rgba(27, 42, 65, 0.25)",
+};
+
+const removePetButtonStyle: React.CSSProperties = {
+  padding: "7px 11px",
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
+  border: "1px solid #d9e2df",
+  borderRadius: 8,
+  backgroundColor: "#ffffff",
+  color: navy,
 };
 
 const subSectionTitleStyle: React.CSSProperties = {
   margin: "18px 0 14px",
   fontSize: 18,
+  fontFamily: "Georgia, serif",
+  color: navy,
+};
+
+const petCardStyle: React.CSSProperties = {
+  border: "1px solid #d9e2df",
+  borderRadius: 14,
+  padding: 16,
+  marginBottom: 16,
+  backgroundColor: "#fbfdfc",
+};
+
+const petHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 12,
+};
+
+const petTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 16,
   fontFamily: "Georgia, serif",
   color: navy,
 };
@@ -387,3 +547,4 @@ const responseStyle: React.CSSProperties = {
   border: "1px solid",
   overflowX: "auto",
 };
+
