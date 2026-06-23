@@ -247,7 +247,7 @@ export default function Home() {
         <div style={accentLineStyle} />
 
         <section style={cardStyle}>
-          <h2 style={sectionTitleStyle}>Create Subscription and Pet(s)</h2>
+          <h2 style={sectionTitleStyle}>Create Subscription and add Pet Information</h2>
 
           <h3 style={subSectionTitleStyle}>Subscriber Information</h3>
 
