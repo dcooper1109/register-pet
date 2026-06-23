@@ -312,7 +312,22 @@ export default function Home() {
                 <Input required label="Pet Name" value={pet.petName} onChange={(v) => updatePet(index, "petName", v)} />
                 <Input required label="Pet Species" value={pet.petSpecies} onChange={(v) => updatePet(index, "petSpecies", v)} />
                 <Input label="Pet Breed" value={pet.petBreed} onChange={(v) => updatePet(index, "petBreed", v)} />
-                <Input required label="Pet Sex" value={pet.petSex} onChange={(v) => updatePet(index, "petSex", v)} />
+                <div>
+                  <label style={labelStyle}>
+                    Pet Sex
+                    <span style={requiredStyle}> *</span>
+                  </label>
+
+                  <select
+                    value={pet.petSex}
+                    onChange={(e) => updatePet(index, "petSex", e.target.value)}
+                    style={inputStyle}
+                  >
+                    <option value="">Select Pet Sex</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </div>
               </div>
             </div>
           ))}
