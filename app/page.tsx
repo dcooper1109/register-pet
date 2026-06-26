@@ -259,6 +259,7 @@ export default function Home() {
               label="Member Subscription ID"
               value={addForm.memberSubID}
               onChange={(v) => updateAddForm("memberSubID", v)}
+              readOnly
             />
 
             {hidePartnerFields ? (
@@ -273,12 +274,14 @@ export default function Home() {
                   label="Partner Name"
                   value={addForm.partnerName}
                   onChange={(v) => updateAddForm("partnerName", v)}
+                  readOnly
                 />
                 <Input
                   required
                   label="Group"
                   value={addForm.affinityGroup}
                   onChange={(v) => updateAddForm("affinityGroup", v)}
+                  readOnly
                 />
               </>
             )}
@@ -394,11 +397,13 @@ function Input({
   value,
   onChange,
   required = false,
+  readOnly = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <div>
@@ -410,7 +415,12 @@ function Input({
         value={value}
         placeholder={`Enter ${label}`}
         onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
+        readOnly={readOnly}
+        style={{
+          ...inputStyle,
+          backgroundColor: readOnly ? "#f3f4f6" : "#ffffff",
+          cursor: readOnly ? "default" : "text",
+        }}
       />
     </div>
   );
