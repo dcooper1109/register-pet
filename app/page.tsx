@@ -169,9 +169,9 @@ export default function Home() {
   function validate(action: string) {
     if (action === "addMemberAndPet") {
       const required = [
-        ["Partner Name", addForm.partnerName],
-        ["Affinity Group", addForm.affinityGroup],
         ["Member Subscription ID", addForm.memberSubID],
+        ["Partner Name", addForm.partnerName],
+        ["Group", addForm.affinityGroup],
         ["Subscription Type", addForm.subscriptionType],
         ["Member First", addForm.memberFirst],
         ["Member Last", addForm.memberLast],
@@ -226,6 +226,8 @@ export default function Home() {
     return "$4.99";
   }
 
+  const hidePartnerFields = addForm.partnerName === "Direct Registration";
+
   return (
     <main style={pageStyle}>
       <div style={shellStyle}>
@@ -252,9 +254,34 @@ export default function Home() {
           <h3 style={subSectionTitleStyle}>Subscriber Information</h3>
 
           <div style={gridStyle}>
-            <Input required label="Partner Name" value={addForm.partnerName} onChange={(v) => updateAddForm("partnerName", v)} />
-            <Input required label="Affinity Group" value={addForm.affinityGroup} onChange={(v) => updateAddForm("affinityGroup", v)} />
-            <Input required label="Member Subscription ID" value={addForm.memberSubID} onChange={(v) => updateAddForm("memberSubID", v)} />
+            <Input
+              required
+              label="Member Subscription ID"
+              value={addForm.memberSubID}
+              onChange={(v) => updateAddForm("memberSubID", v)}
+            />
+
+            {hidePartnerFields ? (
+              <>
+                <div />
+                <div />
+              </>
+            ) : (
+              <>
+                <Input
+                  required
+                  label="Partner Name"
+                  value={addForm.partnerName}
+                  onChange={(v) => updateAddForm("partnerName", v)}
+                />
+                <Input
+                  required
+                  label="Group"
+                  value={addForm.affinityGroup}
+                  onChange={(v) => updateAddForm("affinityGroup", v)}
+                />
+              </>
+            )}
 
             <div>
               <label style={labelStyle}>Subscription Type</label>
@@ -562,4 +589,3 @@ const responseStyle: React.CSSProperties = {
   border: "1px solid",
   overflowX: "auto",
 };
-
