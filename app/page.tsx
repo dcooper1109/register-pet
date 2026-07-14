@@ -228,7 +228,8 @@ export default function Home() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [termsScrolled, setTermsScrolled] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-
+  const [returnUrl, setReturnUrl] = useState("");
+  
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
@@ -236,6 +237,8 @@ export default function Home() {
     const affinityGroup = params.get("utm_medium")?.trim() || "";
     const campaign = params.get("utm_campaign")?.trim() || "";
     const lastName = params.get("utm_id")?.trim() || "";
+    const url = params.get("returnUrl")?.trim() || "";
+    setReturnUrl(url);
 
     if (!partnerName || !affinityGroup) {
       setAddForm((prev) => ({
@@ -293,10 +296,19 @@ export default function Home() {
       setIsError(!response.ok);
 
       if (response.ok && data.success) {
-        setResult("Member/Pet(s) successfully added. Redirecting to login...");
+        setResult("Registration successful. Redirecting...");
 
         setTimeout(() => {
-          window.location.href = "https://purchase.petvantagerx.com";
+          if (addForm.partnerName === "Direct Registration") {
+            // Send consumer to Stripe
+            window.location.href = "https://www.stripe.com";
+          } else if (returnUrl) {
+            // Return to the partner that launched the registration app
+            window.location.href = returnUrl;
+          } else {
+            // Fallback if no return URL was supplied
+            window.location.href = "https://purchase.petvantagerx.com";
+          }
         }, 5000);
       } else {
         setResult(data.message || data.error || "Request failed.");

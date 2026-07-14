@@ -105,7 +105,6 @@ export async function POST(req: Request) {
 
             termsAccepted: true,
             termsVersion: payload.termsVersion.trim(),
-            termsAcceptedAt: new Date().toISOString(),
             termsAcceptanceSource: "register-pet",
             termsAcceptanceIp: acceptanceIp,
           }
@@ -134,12 +133,6 @@ export async function POST(req: Request) {
       {
         success: apiResponse.ok,
         status: apiResponse.status,
-
-        /*
-         * You can temporarily keep sentBody while testing.
-         * Remove it in production because it exposes personal data.
-         */
-        sentBody: outgoingPayload,
         response: data,
       },
       { status: apiResponse.status }
