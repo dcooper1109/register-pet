@@ -237,8 +237,11 @@ export default function Home() {
     const affinityGroup = params.get("utm_medium")?.trim() || "";
     const campaign = params.get("utm_campaign")?.trim() || "";
     const lastName = params.get("utm_id")?.trim() || "";
-    const url = params.get("returnUrl")?.trim() || "";
-    setReturnUrl(url);
+
+    const incomingReturnUrl = params.get("returnUrl")?.trim() || "";
+    setReturnUrl(incomingReturnUrl);
+
+    console.log("Return URL received:", incomingReturnUrl);
 
     if (!partnerName || !affinityGroup) {
       setAddForm((prev) => ({
@@ -299,18 +302,27 @@ export default function Home() {
         setResult("Registration successful. Redirecting...");
 
         setTimeout(() => {
-          if (addForm.partnerName === "Direct Registration") {
-            // Send consumer to Stripe
-            window.location.href = "https://www.stripe.com";
-          } else if (returnUrl) {
-            // Return to the partner that launched the registration app
-            window.location.href = returnUrl;
-          } else {
-            // Fallback if no return URL was supplied
-            window.location.href = "https://purchase.petvantagerx.com";
+          console.log("Partner:", addForm.partnerName);
+          console.log("Returning to:", returnUrl);
+
+          if (addForm.partnerName.trim() === "Direct Registration") {
+            window.top!.location.href = "https://www.stripe.com";
+            return;
           }
+
+          if (returnUrl) {
+            window.top!.location.href = returnUrl;
+            return;
+          }
+
+          setIsError(true);
+          setIsSubmitting(false);
+          setResult(
+            "Registration succeeded, but the partner return URL was not received."
+          );
         }, 5000);
-      } else {
+      }
+      else {
         setResult(data.message || data.error || "Request failed.");
         setIsSubmitting(false);
       }
