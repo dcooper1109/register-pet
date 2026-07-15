@@ -227,6 +227,7 @@ export default function Home() {
   const [termsScrolled, setTermsScrolled] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [returnUrl, setReturnUrl] = useState("");
+  const [isEmbedded, setIsEmbedded] = useState(false);
   
   const [subscriptionOptions, setSubscriptionOptions] =
     useState<SubscriptionOption[]>([]);
@@ -249,6 +250,9 @@ export default function Home() {
 
     const incomingReturnUrl = params.get("returnUrl")?.trim() || "";
     setReturnUrl(incomingReturnUrl);
+
+    const embed = params.get("embed") === "true";
+    setIsEmbedded(embed);
 
     console.log("Return URL received:", incomingReturnUrl);
 
@@ -577,22 +581,26 @@ export default function Home() {
   const submitDisabled = isSubmitting || !termsAccepted;
 
   return (
-    <main style={pageStyle}>
+    <main style={{pageStyle, padding: isEmbedded ? "8px" : "32px 16px",}}>
       <div style={shellStyle}>
-        <header style={headerStyle}>
-          <Image
-            src="/petvantagerx logo on white.png"
-            alt="PetVantageRx"
-            width={350}
-            height={130}
-            priority
-            style={{ height: "auto" }}
-          />
+        {!isEmbedded && (
+          <>
+            <header style={headerStyle}>
+              <Image
+                src="/petvantagerx logo on white.png"
+                alt="PetVantageRx"
+                width={350}
+                height={130}
+                priority
+                style={{ height: "auto" }}
+              />
 
-          <h1 style={titleStyle}>Pet Registration</h1>
-        </header>
+              <h1 style={titleStyle}>Pet Registration</h1>
+            </header>
 
-        <div style={accentLineStyle} />
+            <div style={accentLineStyle} />
+          </>
+        )}
 
         <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>
