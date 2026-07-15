@@ -16,6 +16,11 @@ type Pet = {
   petSex: string;
 };
 
+type SubscriptionOption = {
+  subscriptionType: string;
+  subscriptionPrice: number;
+};
+
 const blankPet: Pet = {
   petName: "",
   petSpecies: "",
@@ -196,13 +201,6 @@ const faqs = [
   },
 ];
 
-function getRequiredPetCount(subscriptionType: string) {
-  if (subscriptionType === "One Pet") return 1;
-  if (subscriptionType === "Two Pets") return 2;
-  if (subscriptionType === "3 or More Pets") return 3;
-  return 1;
-}
-
 function buildPets(count: number, existingPets: Pet[] = []) {
   return Array.from({ length: count }, (_, index) => ({
     ...blankPet,
@@ -230,13 +228,24 @@ export default function Home() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [returnUrl, setReturnUrl] = useState("");
   
+  const [subscriptionOptions, setSubscriptionOptions] =
+    useState<SubscriptionOption[]>([]);
+
+  const [loadingPrices, setLoadingPrices] =
+    useState(true);
+
+  const [priceError, setPriceError] = useState("");
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
+    const incomingPartnerName = params.get("utm_source")?.trim() || "Direct Registration";
     const partnerName = params.get("utm_source")?.trim() || "";
     const affinityGroup = params.get("utm_medium")?.trim() || "";
     const campaign = params.get("utm_campaign")?.trim() || "";
     const lastName = params.get("utm_id")?.trim() || "";
+
+    loadSubscriptionPrices(incomingPartnerName);
 
     const incomingReturnUrl = params.get("returnUrl")?.trim() || "";
     setReturnUrl(incomingReturnUrl);
@@ -269,6 +278,83 @@ export default function Home() {
       memberLast: cleanedLastName || prev.memberLast,
     }));
   }, []);
+
+  function getRequiredPetCount(
+    subscriptionType: string,
+    options: SubscriptionOption[]
+  ) {
+    const selectedIndex = options.findIndex(
+      (option) => option.subscriptionType === subscriptionType
+    );
+
+    return selectedIndex === -1 ? 1 : selectedIndex + 1;
+  }
+
+  async function loadSubscriptionPrices(
+    partnerName: string
+  ) {
+    try {
+      setLoadingPrices(true);
+      setPriceError("");
+
+      const response = await fetch("/api/getprice", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          partnerName,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (
+        !response.ok ||
+        data?.success !== true ||
+        !Array.isArray(data?.subscriptionOptions)
+      ) {
+        throw new Error(
+          data?.message ||
+            "Unable to retrieve subscription pricing."
+        );
+      }
+
+      const options: SubscriptionOption[] =
+        data.subscriptionOptions
+          .filter(
+            (option: any) =>
+              option?.subscriptionType &&
+              option?.subscriptionPrice !== null &&
+              option?.subscriptionPrice !== undefined
+          )
+          .map((option: any) => ({
+            subscriptionType: String(
+              option.subscriptionType
+            ).trim(),
+            subscriptionPrice: Number(
+              option.subscriptionPrice
+            ),
+          }));
+
+      setSubscriptionOptions(options);
+    } catch (error) {
+      console.error(
+        "Subscription pricing error:",
+        error
+      );
+
+      setSubscriptionOptions([]);
+
+      setPriceError(
+        error instanceof Error
+          ? error.message
+          : "Unable to retrieve subscription pricing."
+      );
+    } finally {
+      setLoadingPrices(false);
+    }
+  }
 
   async function runAction(action: string) {
     if (!validate(action)) return;
@@ -323,9 +409,37 @@ export default function Home() {
         }, 5000);
       }
       else {
-        setResult(data.message || data.error || "Request failed.");
+        let responseBody =
+          data?.response?.body ??
+          data?.body ??
+          data?.response ??
+          data;
+
+        if (typeof responseBody === "string") {
+          try {
+            responseBody = JSON.parse(responseBody);
+          } catch {
+            // Leave it as a string if it is not JSON.
+          }
+        }
+
+        const errorMessage =
+          responseBody?.results ||
+          responseBody?.message ||
+          responseBody?.error ||
+          data?.response?.body?.results ||
+          data?.response?.results ||
+          data?.body?.results ||
+          data?.results ||
+          data?.message ||
+          data?.error ||
+          (typeof responseBody === "string" ? responseBody : "") ||
+          "Request failed.";
+
+        setResult(errorMessage);
+        setIsError(true);
         setIsSubmitting(false);
-      }
+      } 
     } catch (err) {
       setIsError(true);
       setIsSubmitting(false);
@@ -338,10 +452,19 @@ export default function Home() {
   }
 
   function handleSubscriptionTypeChange(value: string) {
-    const requiredPetCount = getRequiredPetCount(value);
+    const requiredPetCount = getRequiredPetCount(
+      value,
+      subscriptionOptions
+    );
 
-    setAddForm((prev) => ({ ...prev, subscriptionType: value }));
-    setPets((prevPets) => buildPets(requiredPetCount, prevPets));
+    setAddForm((prev) => ({
+      ...prev,
+      subscriptionType: value,
+    }));
+
+    setPets((prevPets) =>
+      buildPets(requiredPetCount, prevPets)
+    );
   }
 
   function updatePet(index: number, field: keyof Pet, value: string) {
@@ -360,7 +483,7 @@ export default function Home() {
   }
 
   function removePet(index: number) {
-    const requiredPetCount = getRequiredPetCount(addForm.subscriptionType);
+    const requiredPetCount = getRequiredPetCount(addForm.subscriptionType, subscriptionOptions);
 
     setPets((prevPets) => {
       if (prevPets.length <= requiredPetCount) return prevPets;
@@ -395,7 +518,7 @@ export default function Home() {
         .filter(([_, value]) => !value.trim())
         .map(([name]) => name);
 
-      const requiredPetCount = getRequiredPetCount(addForm.subscriptionType);
+      const requiredPetCount = getRequiredPetCount(addForm.subscriptionType, subscriptionOptions);
       const incompletePets: number[] = [];
 
       pets.slice(0, requiredPetCount).forEach((pet, index) => {
@@ -438,11 +561,17 @@ export default function Home() {
   }
 
   function getSubscriptionPrice(subscriptionType: string) {
-    if (subscriptionType === "One Pet") return "$4.99";
-    if (subscriptionType === "Two Pets") return "$5.99";
-    if (subscriptionType === "3 or More Pets") return "$6.99";
-    return "$4.99";
-  }
+    const selectedOption = subscriptionOptions.find(
+      (option) => option.subscriptionType === subscriptionType
+    );
+
+    if (!selectedOption) return "";
+
+    return selectedOption.subscriptionPrice.toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+    });
+}
 
   const hidePartnerFields = addForm.partnerName === "Direct Registration";
   const submitDisabled = isSubmitting || !termsAccepted;
@@ -511,10 +640,22 @@ export default function Home() {
                 value={addForm.subscriptionType}
                 onChange={(e) => handleSubscriptionTypeChange(e.target.value)}
                 style={inputStyle}
+                disabled={loadingPrices || subscriptionOptions.length === 0}
               >
-                <option value="One Pet">One Pet</option>
-                <option value="Two Pets">Two Pets</option>
-                <option value="3 or More Pets">3 or More Pets</option>
+                <option value="">
+                  {loadingPrices
+                    ? "Loading subscription options..."
+                    : "Select Subscription Type"}
+                </option>
+
+                {subscriptionOptions.map((option) => (
+                  <option
+                    key={option.subscriptionType}
+                    value={option.subscriptionType}
+                  >
+                    {option.subscriptionType}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -566,7 +707,7 @@ export default function Home() {
               <div style={petHeaderStyle}>
                 <h4 style={petTitleStyle}>Pet Information {index + 1}</h4>
 
-                {pets.length > getRequiredPetCount(addForm.subscriptionType) && (
+                {pets.length > getRequiredPetCount(addForm.subscriptionType, subscriptionOptions) && (
                   <button
                     type="button"
                     style={removePetButtonStyle}
@@ -615,8 +756,12 @@ export default function Home() {
             </div>
           ))}
 
-          {addForm.subscriptionType === "3 or More Pets" && (
-            <button type="button" style={secondaryButtonStyle} onClick={addPet}>
+          {getRequiredPetCount(addForm.subscriptionType, subscriptionOptions) >= 3 && (
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={addPet}
+            >
               Add Another Pet
             </button>
           )}
