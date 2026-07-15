@@ -228,7 +228,7 @@ export default function Home() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [returnUrl, setReturnUrl] = useState("");
   const [isEmbedded, setIsEmbedded] = useState(false);
-  
+
   const [subscriptionOptions, setSubscriptionOptions] =
     useState<SubscriptionOption[]>([]);
 
@@ -581,7 +581,12 @@ export default function Home() {
   const submitDisabled = isSubmitting || !termsAccepted;
 
   return (
-    <main style={{pageStyle, padding: isEmbedded ? "8px" : "32px 16px",}}>
+      <main
+        style={{
+          ...pageStyle,
+          padding: isEmbedded ? "8px" : "32px 16px",
+        }}
+      >
       <div style={shellStyle}>
         {!isEmbedded && (
           <>
