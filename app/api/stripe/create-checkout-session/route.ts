@@ -26,6 +26,7 @@ type CreatePaymentRecordResult = {
 type UpdatePaymentRecordInput = {
   paymentRecordId: string;
   registrationToken: string;
+  partnerName?: string;
   memberSubID?: string;
   memberEmail?: string;
   stripeCheckoutSessionID: string;
@@ -227,6 +228,7 @@ async function updatePaymentRecord(
 export async function POST(request: Request) {
   let paymentRecordId = "";
   let registrationToken = "";
+  let partnerName = "";
   let memberSubID = "";
   let memberEmail = "";
 
@@ -240,6 +242,7 @@ export async function POST(request: Request) {
     } = body;
 
     registrationToken = String(body.registrationToken ?? "").trim();
+    partnerName = String(body.partnerName ?? "").trim();
     memberSubID = String(body.memberSubID ?? "").trim();
     memberEmail = String(body.memberEmail ?? "").trim();
 
@@ -446,6 +449,7 @@ export async function POST(request: Request) {
     await updatePaymentRecord({
       paymentRecordId,
       registrationToken,
+      partnerName,
       memberSubID,
       memberEmail,
       stripeCheckoutSessionID: session.id,
@@ -479,6 +483,7 @@ export async function POST(request: Request) {
         await updatePaymentRecord({
           paymentRecordId,
           registrationToken,
+          partnerName,
           memberSubID,
           memberEmail,
           stripeCheckoutSessionID: "",
