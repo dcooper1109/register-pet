@@ -427,7 +427,6 @@ export async function POST(request: Request) {
         "https://register.petvantagerx.com/" +
         `?payment=cancelled` +
         `&registrationToken=${encodeURIComponent(registrationToken)}`,
-        )}`,
     });
 
     if (!session.url) {
