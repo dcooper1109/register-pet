@@ -237,7 +237,6 @@ export async function POST(request: Request) {
 
     const {
       subscriptionType,
-      partnerName,
       affinityGroup,
     } = body;
 
@@ -401,7 +400,9 @@ export async function POST(request: Request) {
       metadata: {
         registrationToken,
         paymentRecordId,
+        partnerName,
         memberSubID,
+        memberEmail,
         subscriptionType: verifiedSubscriptionType,
         subscriptionPrice: verifiedSubscriptionPrice,
       },
@@ -410,7 +411,9 @@ export async function POST(request: Request) {
         metadata: {
           registrationToken,
           paymentRecordId,
+          partnerName,
           memberSubID,
+          memberEmail,
           subscriptionType: verifiedSubscriptionType,
           subscriptionPrice: verifiedSubscriptionPrice,
         },
