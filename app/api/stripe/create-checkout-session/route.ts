@@ -26,6 +26,8 @@ type CreatePaymentRecordResult = {
 type UpdatePaymentRecordInput = {
   paymentRecordId: string;
   registrationToken: string;
+  memberSubID?: string;
+  memberEmail?: string;
   stripeCheckoutSessionID: string;
   stripeCheckoutURL?: string;
   stripeCustomerID?: string;
@@ -442,6 +444,8 @@ export async function POST(request: Request) {
     await updatePaymentRecord({
       paymentRecordId,
       registrationToken,
+      memberSubID,
+      memberEmail,
       stripeCheckoutSessionID: session.id,
       stripeCheckoutURL: session.url,
       stripeCustomerID,
@@ -473,6 +477,8 @@ export async function POST(request: Request) {
         await updatePaymentRecord({
           paymentRecordId,
           registrationToken,
+          memberSubID,
+          memberEmail,
           stripeCheckoutSessionID: "",
           paymentTrackingStatus: "Checkout Error",
           errorMessage,
