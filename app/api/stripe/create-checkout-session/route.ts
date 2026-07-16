@@ -420,13 +420,13 @@ export async function POST(request: Request) {
       },
 
       success_url:
-        `${baseUrl}/registration-success` +
-        `?session_id={CHECKOUT_SESSION_ID}`,
+        "https://purchase.petvantagerx.com/" +
+        "?stripe_session_id={CHECKOUT_SESSION_ID}",
 
       cancel_url:
-        `${baseUrl}/?payment=cancelled` +
-        `&registrationToken=${encodeURIComponent(
-          registrationToken
+        "https://register.petvantagerx.com/" +
+        `?payment=cancelled` +
+        `&registrationToken=${encodeURIComponent(registrationToken)}`,
         )}`,
     });
 
