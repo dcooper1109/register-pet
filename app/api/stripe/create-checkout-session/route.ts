@@ -227,19 +227,21 @@ async function updatePaymentRecord(
 export async function POST(request: Request) {
   let paymentRecordId = "";
   let registrationToken = "";
+  let memberSubID = "";
+  let memberEmail = "";
 
   try {
     const body = await request.json();
 
     const {
       subscriptionType,
-      memberEmail,
-      memberSubID,
       partnerName,
       affinityGroup,
     } = body;
 
     registrationToken = String(body.registrationToken ?? "").trim();
+    memberSubID = String(body.memberSubID ?? "").trim();
+    memberEmail = String(body.memberEmail ?? "").trim();
 
     if (
       !registrationToken ||
