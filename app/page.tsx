@@ -212,7 +212,8 @@ export default function Home() {
   const [addForm, setAddForm] = useState({
     partnerName: "Direct Registration",
     affinityGroup: "D2C",
-    subscriptionType: "One Pet",
+    subscriptionType: "",
+    subscriptionPrice: "",
     memberFirst: "",
     memberLast: "",
     memberSubID: "",
@@ -380,25 +381,150 @@ export default function Home() {
     try {
       const response = await fetch("/api/pet-service", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, payload }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action,
+          payload,
+        }),
       });
 
       const data = await response.json();
 
+      let responseBody =
+        data?.response?.body ??
+        data?.body ??
+        data?.response ??
+        data;
+
+      /*
+      * Power Automate or APIM may return body as a JSON string.
+      */
+      if (typeof responseBody === "string") {
+        try {
+          responseBody = JSON.parse(responseBody);
+        } catch {
+          // Keep it as a string when it is not JSON.
+        }
+      }
+
+      /*
+      * Handle an additional statusCode/body wrapper.
+      */
+      if (
+        responseBody &&
+        typeof responseBody === "object" &&
+        responseBody.body
+      ) {
+        responseBody = responseBody.body;
+
+        if (typeof responseBody === "string") {
+          try {
+            responseBody = JSON.parse(responseBody);
+          } catch {
+            // Keep it as a string when it is not JSON.
+          }
+        }
+      }
+
+      console.log("Full pet-service response:", data);
+      console.log("Parsed response body:", responseBody);
+
+      if (typeof responseBody === "string") {
+        try {
+          responseBody = JSON.parse(responseBody);
+        } catch {
+          // Leave responseBody as a string if it is not valid JSON.
+        }
+      }
+
       setIsError(!response.ok);
 
-      if (response.ok && data.success) {
+      if (
+        response.ok &&
+        typeof responseBody === "object" &&
+        responseBody?.success === true
+      ) {
+        if (addForm.partnerName.trim() === "Direct Registration") {
+          setResult("Registration saved. Preparing secure payment...");
+
+          const registrationToken =
+            responseBody?.registrationToken ??
+            data?.registrationToken ??
+            data?.body?.registrationToken ??
+            data?.response?.registrationToken ??
+            data?.response?.body?.registrationToken;
+
+          if (!registrationToken) {
+
+            console.error(
+              "Registration token missing. Full response:",
+              data
+            );
+
+            setIsError(true);
+            setIsSubmitting(false);
+            setResult(
+              "The pending registration was created, but its registration ID was not returned."
+            );
+            return;
+          }
+
+          console.log(
+            "Registration token received:",
+            registrationToken
+          );
+
+          const checkoutResponse = await fetch(
+            "/api/stripe/create-checkout-session",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                registrationToken,
+                subscriptionType: addForm.subscriptionType,
+                subscriptionPrice: addForm.subscriptionPrice,
+                memberEmail: addForm.memberEmail,
+                memberSubID: addForm.memberSubID,
+                partnerName: addForm.partnerName,
+                affinityGroup: addForm.affinityGroup,
+              }),
+            }
+          );
+
+          const checkoutData = await checkoutResponse.json();
+
+          if (
+            !checkoutResponse.ok ||
+            !checkoutData.success ||
+            !checkoutData.checkoutUrl
+          ) {
+            const checkoutError =
+              checkoutData?.message ||
+              checkoutData?.error ||
+              "Unable to start Stripe Checkout.";
+
+            setIsError(true);
+            setIsSubmitting(false);
+            setResult(checkoutError);
+            return;
+          }
+
+          window.top!.location.href =
+            checkoutData.checkoutUrl;
+
+          return;
+        }
+
+        // Existing non-direct registration logic continues here.
         setResult("Registration successful. Redirecting...");
 
         setTimeout(() => {
           console.log("Partner:", addForm.partnerName);
           console.log("Returning to:", returnUrl);
-
-          if (addForm.partnerName.trim() === "Direct Registration") {
-            window.top!.location.href = "https://www.stripe.com";
-            return;
-          }
 
           if (returnUrl) {
             window.top!.location.href = returnUrl;
@@ -411,8 +537,7 @@ export default function Home() {
             "Registration succeeded, but the partner return URL was not received."
           );
         }, 5000);
-      }
-      else {
+      } else {
         let responseBody =
           data?.response?.body ??
           data?.body ??
@@ -443,11 +568,17 @@ export default function Home() {
         setResult(errorMessage);
         setIsError(true);
         setIsSubmitting(false);
-      } 
+      }
     } catch (err) {
+      console.error("Registration submission error:", err);
+
       setIsError(true);
       setIsSubmitting(false);
-      setResult(err instanceof Error ? err.message : "Unknown error");
+      setResult(
+        err instanceof Error
+          ? err.message
+          : "An unknown registration error occurred."
+      );
     }
   }
 
@@ -461,9 +592,15 @@ export default function Home() {
       subscriptionOptions
     );
 
+    const selectedOption = subscriptionOptions.find(
+      (option) => option.subscriptionType === value
+    );
+
     setAddForm((prev) => ({
       ...prev,
       subscriptionType: value,
+      subscriptionPrice:
+        selectedOption?.subscriptionPrice.toString() ?? "",
     }));
 
     setPets((prevPets) =>
@@ -512,6 +649,7 @@ export default function Home() {
         ["Partner Name", addForm.partnerName],
         ["Group", addForm.affinityGroup],
         ["Subscription Type", addForm.subscriptionType],
+        ["Subscription Price", addForm.subscriptionPrice],
         ["Member First", addForm.memberFirst],
         ["Member Last", addForm.memberLast],
         ["Member Email", addForm.memberEmail],
