@@ -3,6 +3,12 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
+import PhoneInput, {
+  isValidPhoneNumber,
+} from "react-phone-number-input";
+
+import "react-phone-number-input/style.css";
+
 const TERMS_VERSION = "2026-06-24";
 
 function generateSubscriptionId() {
@@ -698,6 +704,14 @@ export default function Home() {
         setResult(message);
         return false;
       }
+
+      if (!isValidPhoneNumber(addForm.memberPhone)) {
+        setIsError(true);
+        setResult(
+          "Please enter a valid mobile phone number, including the correct area code."
+        );
+        return false;
+      }
     }
     return true;
   }
@@ -841,12 +855,27 @@ export default function Home() {
               value={addForm.memberEmail}
               onChange={(v) => updateAddForm("memberEmail", v)}
             />
-            <Input
-              required
-              label="Mobile Phone"
-              value={addForm.memberPhone}
-              onChange={(v) => updateAddForm("memberPhone", v)}
-            />
+            <div>
+              <label style={labelStyle}>
+                Mobile Phone
+                <span style={requiredStyle}> *</span>
+              </label>
+
+              <PhoneInput
+                defaultCountry="US"
+                international={false}
+                countryCallingCodeEditable={false}
+                value={addForm.memberPhone}
+                onChange={(value) =>
+                  updateAddForm("memberPhone", value ?? "")
+                }
+                style={phoneInputContainerStyle}
+                numberInputProps={{
+                  style: phoneNumberInputStyle,
+                  placeholder: "Enter Mobile Phone",
+                }}
+              />
+            </div>
           </div>
 
           <div style={sectionDividerStyle} />
@@ -1412,4 +1441,26 @@ const faqAnswerStyle: React.CSSProperties = {
   color: "#374151",
   fontSize: 14,
   lineHeight: 1.6,
+};
+
+const phoneInputContainerStyle: React.CSSProperties = {
+  width: "100%",
+  height: 42,
+  display: "flex",
+  alignItems: "center",
+  padding: "0 11px",
+  border: "1px solid #9ca3af",
+  borderRadius: 8,
+  backgroundColor: "#ffffff",
+  boxSizing: "border-box",
+};
+
+const phoneNumberInputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 40,
+  border: "none",
+  outline: "none",
+  fontSize: 15,
+  backgroundColor: "transparent",
+  color: "#111827",
 };
