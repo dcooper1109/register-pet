@@ -7,25 +7,32 @@ type StripeUpdatePayload = {
   eventId: string;
   eventType: string;
 
+  partnerName: string;
+  affinityGroup: string;
+  subscriptionType: string;
+  subscriptionPrice: string;
+  memberSubID: string;
+  memberEmail: string;
+
   registrationToken: string;
   paymentRecordId: string;
-  memberSubID: string;
+  paymentTrackingStatus: string;
 
   stripeCheckoutId: string;
+  stripeCheckoutURL: string;
   stripeCustomerId: string;
   stripeSubscriptionId: string;
   stripeSubscriptionStatus: string;
   stripePaymentStatus: string;
-
   stripeInvoiceId: string;
 
-  stripePaymentMethodId?: string;
-  stripePaymentMethodType?: string;
-  cardBrand?: string;
-  cardLast4?: string;
-  cardExpirationMonth?: number | null;
-  cardExpirationYear?: number | null;
-  cardFingerprint?: string;
+  stripePaymentMethodId: string;
+  stripePaymentMethodType: string;
+  cardBrand: string;
+  cardLast4: string;
+  cardExpirationMonth: number | null;
+  cardExpirationYear: number | null;
+  cardFingerprint: string;
 };
 
 function getStripeId(
@@ -38,19 +45,46 @@ function getStripeId(
   return typeof value === "string" ? value : value.id;
 }
 
+function getPaymentTrackingStatus(eventType: string): string {
+  switch (eventType) {
+    case "checkout.session.completed":
+      return "Checkout Completed";
+    case "customer.subscription.created":
+      return "Subscription Created";
+    case "customer.subscription.updated":
+      return "Subscription Updated";
+    case "customer.subscription.deleted":
+      return "Subscription Deleted";
+    case "customer.subscription.paused":
+      return "Subscription Paused";
+    case "invoice.paid":
+      return "Payment Successful";
+    case "invoice.payment_failed":
+      return "Payment Failed";
+    case "invoice.payment_action_required":
+      return "Customer Action Required";
+    case "payment_method.updated":
+      return "Payment Method Updated";
+    case "payment_method.automatically_updated":
+      return "Payment Method Automatically Updated";
+    default:
+      return "Stripe Event Received";
+  }
+}
+
 async function sendStripeUpdate(payload: StripeUpdatePayload) {
   const updateUrl = process.env.APIM_UPDATE_PAYMENT_RECORD_URL;
   const updateKey = process.env.APIM_UPDATE_PAYMENT_RECORD_KEY;
 
   if (!updateUrl) {
     throw new Error(
-      "STRIPE_PAYMENT_UPDATE_URL is missing from the environment variables."
+      "APIM_UPDATE_PAYMENT_RECORD_URL is missing from the environment variables."
     );
   }
 
   if (!updateKey) {
     throw new Error(
-      "STRIPE_PAYMENT_UPDATE_KEY is missing from the environment variables."
+      "APIM_UPDATE_PAYMENT_RECORD_KEY is missing from the environment variables."
     );
   }
 
@@ -63,34 +97,34 @@ async function sendStripeUpdate(payload: StripeUpdatePayload) {
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
+  const responseText = await response.text();
 
+  console.log("APIM Stripe update response:", {
+    status: response.status,
+    ok: response.ok,
+    body: responseText,
+  });
+
+  if (!response.ok) {
     throw new Error(
-      `Stripe update API returned ${response.status}: ${errorText}`
+      `Stripe update API returned ${response.status}: ${responseText}`
     );
   }
 }
 
 export async function POST(req: Request) {
   const body = await req.text();
-
   const signature = (await headers()).get("stripe-signature");
 
   if (!signature) {
-    return new Response("Missing signature", {
-      status: 400,
-    });
+    return new Response("Missing signature", { status: 400 });
   }
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!webhookSecret) {
     console.error("STRIPE_WEBHOOK_SECRET is missing.");
-
-    return new Response("Webhook configuration error", {
-      status: 500,
-    });
+    return new Response("Webhook configuration error", { status: 500 });
   }
 
   let event: Stripe.Event;
@@ -103,10 +137,7 @@ export async function POST(req: Request) {
     );
   } catch (err) {
     console.error("Invalid Stripe webhook signature:", err);
-
-    return new Response("Invalid signature", {
-      status: 400,
-    });
+    return new Response("Invalid signature", { status: 400 });
   }
 
   console.log("Webhook Event:", event.type);
@@ -114,29 +145,16 @@ export async function POST(req: Request) {
 
   try {
     switch (event.type) {
-      /*
-       * The Checkout Session gives you:
-       * - Checkout Session ID
-       * - Customer ID
-       * - Subscription ID
-       * - Checkout payment status
-       */
       case "checkout.session.completed": {
-        const session =
-          event.data.object as Stripe.Checkout.Session;
-
+        const session = event.data.object as Stripe.Checkout.Session;
         const metadata = session.metadata ?? {};
 
         let subscriptionStatus = "";
-
-        const subscriptionId = getStripeId(
-          session.subscription
-        );
+        const subscriptionId = getStripeId(session.subscription);
 
         if (subscriptionId) {
           const subscription =
             await stripe.subscriptions.retrieve(subscriptionId);
-
           subscriptionStatus = subscription.status;
         }
 
@@ -144,31 +162,36 @@ export async function POST(req: Request) {
           eventId: event.id,
           eventType: event.type,
 
-          registrationToken:
-            metadata.registrationToken ?? "",
+          partnerName: metadata.partnerName ?? "",
+          affinityGroup: metadata.affinityGroup ?? "",
+          subscriptionType: metadata.subscriptionType ?? "",
+          subscriptionPrice: metadata.subscriptionPrice ?? "",
+          memberSubID: metadata.memberSubID ?? "",
+          memberEmail:
+            metadata.memberEmail ??
+            session.customer_details?.email ??
+            session.customer_email ??
+            "",
 
-          paymentRecordId:
-            metadata.paymentRecordId ?? "",
-
-          memberSubID:
-            metadata.memberSubID ?? "",
+          registrationToken: metadata.registrationToken ?? "",
+          paymentRecordId: metadata.paymentRecordId ?? "",
+          paymentTrackingStatus: getPaymentTrackingStatus(event.type),
 
           stripeCheckoutId: session.id,
-
-          stripeCustomerId: getStripeId(
-            session.customer
-          ),
-
+          stripeCheckoutURL: session.url ?? "",
+          stripeCustomerId: getStripeId(session.customer),
           stripeSubscriptionId: subscriptionId,
+          stripeSubscriptionStatus: subscriptionStatus,
+          stripePaymentStatus: session.payment_status,
+          stripeInvoiceId: getStripeId(session.invoice),
 
-          stripeSubscriptionStatus:
-            subscriptionStatus,
-
-          stripePaymentStatus:
-            session.payment_status,
-
-          stripeInvoiceId:
-            getStripeId(session.invoice),
+          stripePaymentMethodId: "",
+          stripePaymentMethodType: "",
+          cardBrand: "",
+          cardLast4: "",
+          cardExpirationMonth: null,
+          cardExpirationYear: null,
+          cardFingerprint: "",
         };
 
         console.log(
@@ -177,37 +200,21 @@ export async function POST(req: Request) {
         );
 
         await sendStripeUpdate(payload);
-
         break;
       }
 
-      /*
-       * Subscription events give you:
-       * - Customer ID
-       * - Subscription ID
-       * - Subscription status
-       *
-       * These events also contain the metadata that you showed.
-       */
       case "customer.subscription.paused":
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
-        const subscription =
-          event.data.object as Stripe.Subscription;
-
+        const subscription = event.data.object as Stripe.Subscription;
         const metadata = subscription.metadata ?? {};
-
-        const latestInvoiceId = getStripeId(
-          subscription.latest_invoice
-        );
+        const latestInvoiceId = getStripeId(subscription.latest_invoice);
 
         let paymentStatus = "";
 
         if (latestInvoiceId) {
-          const invoice =
-            await stripe.invoices.retrieve(latestInvoiceId);
-
+          const invoice = await stripe.invoices.retrieve(latestInvoiceId);
           paymentStatus = invoice.status ?? "";
         }
 
@@ -215,31 +222,32 @@ export async function POST(req: Request) {
           eventId: event.id,
           eventType: event.type,
 
-          registrationToken:
-            metadata.registrationToken ?? "",
+          partnerName: metadata.partnerName ?? "",
+          affinityGroup: metadata.affinityGroup ?? "",
+          subscriptionType: metadata.subscriptionType ?? "",
+          subscriptionPrice: metadata.subscriptionPrice ?? "",
+          memberSubID: metadata.memberSubID ?? "",
+          memberEmail: metadata.memberEmail ?? "",
 
-          paymentRecordId:
-            metadata.paymentRecordId ?? "",
-
-          memberSubID:
-            metadata.memberSubID ?? "",
+          registrationToken: metadata.registrationToken ?? "",
+          paymentRecordId: metadata.paymentRecordId ?? "",
+          paymentTrackingStatus: getPaymentTrackingStatus(event.type),
 
           stripeCheckoutId: "",
+          stripeCheckoutURL: "",
+          stripeCustomerId: getStripeId(subscription.customer),
+          stripeSubscriptionId: subscription.id,
+          stripeSubscriptionStatus: subscription.status,
+          stripePaymentStatus: paymentStatus,
+          stripeInvoiceId: latestInvoiceId,
 
-          stripeCustomerId:
-            getStripeId(subscription.customer),
-
-          stripeSubscriptionId:
-            subscription.id,
-
-          stripeSubscriptionStatus:
-            subscription.status,
-
-          stripePaymentStatus:
-            paymentStatus,
-
-          stripeInvoiceId:
-            latestInvoiceId,
+          stripePaymentMethodId: "",
+          stripePaymentMethodType: "",
+          cardBrand: "",
+          cardLast4: "",
+          cardExpirationMonth: null,
+          cardExpirationYear: null,
+          cardFingerprint: "",
         };
 
         console.log(
@@ -248,19 +256,13 @@ export async function POST(req: Request) {
         );
 
         await sendStripeUpdate(payload);
-
         break;
       }
 
-      /*
-       * Invoice events tell you whether the initial or recurring
-       * subscription payment succeeded or failed.
-       */
       case "invoice.paid":
       case "invoice.payment_failed":
       case "invoice.payment_action_required": {
-        const invoice =
-          event.data.object as Stripe.Invoice;
+        const invoice = event.data.object as Stripe.Invoice;
 
         const subscriptionDetails =
           invoice.parent?.type === "subscription_details"
@@ -279,6 +281,7 @@ export async function POST(req: Request) {
         }
 
         const metadata =
+          subscriptionDetails?.metadata ??
           subscription?.metadata ??
           invoice.metadata ??
           {};
@@ -294,32 +297,33 @@ export async function POST(req: Request) {
           eventId: event.id,
           eventType: event.type,
 
-          registrationToken:
-            metadata.registrationToken ?? "",
+          partnerName: metadata.partnerName ?? "",
+          affinityGroup: metadata.affinityGroup ?? "",
+          subscriptionType: metadata.subscriptionType ?? "",
+          subscriptionPrice: metadata.subscriptionPrice ?? "",
+          memberSubID: metadata.memberSubID ?? "",
+          memberEmail:
+            metadata.memberEmail ?? invoice.customer_email ?? "",
 
-          paymentRecordId:
-            metadata.paymentRecordId ?? "",
-
-          memberSubID:
-            metadata.memberSubID ?? "",
+          registrationToken: metadata.registrationToken ?? "",
+          paymentRecordId: metadata.paymentRecordId ?? "",
+          paymentTrackingStatus: getPaymentTrackingStatus(event.type),
 
           stripeCheckoutId: "",
+          stripeCheckoutURL: "",
+          stripeCustomerId: getStripeId(invoice.customer),
+          stripeSubscriptionId: subscriptionId,
+          stripeSubscriptionStatus: subscription?.status ?? "",
+          stripePaymentStatus: paymentStatus,
+          stripeInvoiceId: invoice.id,
 
-          stripeCustomerId: getStripeId(
-            invoice.customer
-          ),
-
-          stripeSubscriptionId:
-            subscriptionId,
-
-          stripeSubscriptionStatus:
-            subscription?.status ?? "",
-
-          stripePaymentStatus:
-            paymentStatus,
-
-          stripeInvoiceId:
-            invoice.id,
+          stripePaymentMethodId: "",
+          stripePaymentMethodType: "",
+          cardBrand: "",
+          cardLast4: "",
+          cardExpirationMonth: null,
+          cardExpirationYear: null,
+          cardFingerprint: "",
         };
 
         console.log(
@@ -328,7 +332,6 @@ export async function POST(req: Request) {
         );
 
         await sendStripeUpdate(payload);
-
         break;
       }
 
@@ -336,57 +339,39 @@ export async function POST(req: Request) {
       case "payment_method.automatically_updated": {
         const paymentMethod =
           event.data.object as Stripe.PaymentMethod;
+        const metadata = paymentMethod.metadata ?? {};
 
-        const customerId = getStripeId(
-          paymentMethod.customer
-        );
-
-        /*
-        * PaymentMethod metadata usually won't contain your
-        * registrationToken, paymentRecordId, or memberSubID.
-        *
-        * Your APIM flow should locate the payment record using
-        * stripeCustomerId.
-        */
         const payload: StripeUpdatePayload = {
           eventId: event.id,
           eventType: event.type,
 
-          registrationToken: "",
-          paymentRecordId: "",
-          memberSubID: "",
+          partnerName: metadata.partnerName ?? "",
+          affinityGroup: metadata.affinityGroup ?? "",
+          subscriptionType: metadata.subscriptionType ?? "",
+          subscriptionPrice: metadata.subscriptionPrice ?? "",
+          memberSubID: metadata.memberSubID ?? "",
+          memberEmail: metadata.memberEmail ?? "",
+
+          registrationToken: metadata.registrationToken ?? "",
+          paymentRecordId: metadata.paymentRecordId ?? "",
+          paymentTrackingStatus: getPaymentTrackingStatus(event.type),
 
           stripeCheckoutId: "",
-
-          stripeCustomerId:
-            customerId,
-
+          stripeCheckoutURL: "",
+          stripeCustomerId: getStripeId(paymentMethod.customer),
           stripeSubscriptionId: "",
-
           stripeSubscriptionStatus: "",
-
           stripePaymentStatus: "",
-
           stripeInvoiceId: "",
 
-          stripePaymentMethodId:
-            paymentMethod.id,
-
-          stripePaymentMethodType:
-            paymentMethod.type,
-
-          cardBrand:
-            paymentMethod.card?.brand ?? "",
-
-          cardLast4:
-            paymentMethod.card?.last4 ?? "",
-
+          stripePaymentMethodId: paymentMethod.id,
+          stripePaymentMethodType: paymentMethod.type,
+          cardBrand: paymentMethod.card?.brand ?? "",
+          cardLast4: paymentMethod.card?.last4 ?? "",
           cardExpirationMonth:
             paymentMethod.card?.exp_month ?? null,
-
           cardExpirationYear:
             paymentMethod.card?.exp_year ?? null,
-
           cardFingerprint:
             paymentMethod.card?.fingerprint ?? "",
         };
@@ -397,7 +382,6 @@ export async function POST(req: Request) {
         );
 
         await sendStripeUpdate(payload);
-
         break;
       }
 
@@ -418,10 +402,6 @@ export async function POST(req: Request) {
       err
     );
 
-    /*
-     * Returning 500 tells Stripe that processing failed.
-     * Stripe can then retry delivery.
-     */
     return Response.json(
       {
         received: false,
@@ -432,9 +412,7 @@ export async function POST(req: Request) {
             ? err.message
             : "Webhook processing failed.",
       },
-      {
-        status: 500,
-      }
+      { status: 500 }
     );
   }
 }
