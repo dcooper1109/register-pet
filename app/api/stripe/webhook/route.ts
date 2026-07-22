@@ -208,13 +208,7 @@ export async function POST(req: Request) {
           const invoice =
             await stripe.invoices.retrieve(latestInvoiceId);
 
-          if (invoice.paid) {
-            paymentStatus = "paid";
-          } else {
-            paymentStatus =
-              invoice.status ?? "unpaid";
-          }
-        }
+        paymentStatus = invoice.status ?? "unpaid";
 
         const payload: StripeUpdatePayload = {
           eventId: event.id,
