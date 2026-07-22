@@ -381,6 +381,7 @@ export default function Home() {
       mobilePhone: addForm.memberPhone,
       pets,
       termsAccepted,
+      termsAcceptedAt: new Date().toISOString(),
       termsVersion: "2026-06-24",
     };
 
