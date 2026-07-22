@@ -29,7 +29,7 @@ type UpdatePaymentRecordInput = {
   partnerName?: string;
   memberSubID?: string;
   memberEmail?: string;
-  stripeCheckoutSessionID: string;
+  stripeCheckoutID: string;
   stripeCheckoutURL?: string;
   stripeCustomerID?: string;
   stripeSubscriptionID?: string;
@@ -454,7 +454,7 @@ export async function POST(request: Request) {
       partnerName,
       memberSubID,
       memberEmail,
-      stripeCheckoutSessionID: session.id,
+      stripeCheckoutID: session.id,
       stripeCheckoutURL: session.url,
       stripeCustomerID,
       stripeSubscriptionID,
@@ -488,7 +488,7 @@ export async function POST(request: Request) {
           partnerName,
           memberSubID,
           memberEmail,
-          stripeCheckoutSessionID: "",
+          stripeCheckoutID: "",
           paymentTrackingStatus: "Checkout Error",
           errorMessage,
         });

@@ -224,7 +224,7 @@ export async function POST(req: Request) {
           memberSubID:
             metadata.memberSubID ?? "",
 
-          stripeCheckoutSessionId: "",
+          stripeCheckoutId: "",
 
           stripeCustomerId:
             getStripeId(subscription.customer),
