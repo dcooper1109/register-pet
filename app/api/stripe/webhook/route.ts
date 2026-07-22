@@ -189,10 +189,10 @@ export async function POST(req: Request) {
        *
        * These events also contain the metadata that you showed.
        */
+      case "customer.subscription.paused":
       case "customer.subscription.created":
       case "customer.subscription.updated":
-      case "customer.subscription.deleted":
-      case "customer.subscription.paused": {
+      case "customer.subscription.deleted": {
         const subscription =
           event.data.object as Stripe.Subscription;
 
@@ -208,7 +208,8 @@ export async function POST(req: Request) {
           const invoice =
             await stripe.invoices.retrieve(latestInvoiceId);
 
-        paymentStatus = invoice.status ?? "unpaid";
+          paymentStatus = invoice.status ?? "";
+        }
 
         const payload: StripeUpdatePayload = {
           eventId: event.id,
@@ -223,11 +224,10 @@ export async function POST(req: Request) {
           memberSubID:
             metadata.memberSubID ?? "",
 
-          stripeCheckoutId: "",
+          stripeCheckoutSessionId: "",
 
-          stripeCustomerId: getStripeId(
-            subscription.customer
-          ),
+          stripeCustomerId:
+            getStripeId(subscription.customer),
 
           stripeSubscriptionId:
             subscription.id,
