@@ -1,7 +1,3 @@
-Library
-/
-Pasted code(51)-updated.ts
-
 
 import Stripe from "stripe";
 import { headers } from "next/headers";
