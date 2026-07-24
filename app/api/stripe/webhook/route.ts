@@ -1,7 +1,14 @@
+Library
+/
+Pasted code(51)-updated.ts
+
+
 import Stripe from "stripe";
 import { headers } from "next/headers";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+const WEBHOOK_VERSION = "billing-period-fields-v2";
 
 type StripeUpdatePayload = {
   eventId: string;
@@ -23,6 +30,8 @@ type StripeUpdatePayload = {
   stripeCustomerId: string;
   stripeSubscriptionId: string;
   stripeSubscriptionStatus: string;
+  currentBillingPeriodStart: string;
+  currentBillingPeriodEnd: string;
   stripePaymentStatus: string;
   stripeInvoiceId: string;
 
@@ -43,6 +52,16 @@ function getStripeId(
   }
 
   return typeof value === "string" ? value : value.id;
+}
+
+function stripeTimestampToIso(
+  timestamp: number | null | undefined
+): string {
+  if (timestamp === null || timestamp === undefined) {
+    return "";
+  }
+
+  return new Date(timestamp * 1000).toISOString();
 }
 
 function getPaymentTrackingStatus(eventType: string): string {
@@ -142,6 +161,7 @@ export async function POST(req: Request) {
 
   console.log("Webhook Event:", event.type);
   console.log("Webhook Event ID:", event.id);
+  console.log("Webhook Version:", WEBHOOK_VERSION);
 
   try {
     switch (event.type) {
@@ -150,13 +170,32 @@ export async function POST(req: Request) {
         const metadata = session.metadata ?? {};
 
         let subscriptionStatus = "";
+        let currentBillingPeriodStart = "";
+        let currentBillingPeriodEnd = "";
+
         const subscriptionId = getStripeId(session.subscription);
 
         if (subscriptionId) {
           const subscription =
             await stripe.subscriptions.retrieve(subscriptionId);
+
           subscriptionStatus = subscription.status;
+
+          const subscriptionItem = subscription.items.data[0];
+
+          currentBillingPeriodStart = stripeTimestampToIso(
+            subscriptionItem?.current_period_start
+          );
+
+          currentBillingPeriodEnd = stripeTimestampToIso(
+            subscriptionItem?.current_period_end
+          );
         }
+
+        console.log("Checkout billing period values:", {
+          currentBillingPeriodStart,
+          currentBillingPeriodEnd,
+        });
 
         const payload: StripeUpdatePayload = {
           eventId: event.id,
@@ -182,6 +221,8 @@ export async function POST(req: Request) {
           stripeCustomerId: getStripeId(session.customer),
           stripeSubscriptionId: subscriptionId,
           stripeSubscriptionStatus: subscriptionStatus,
+          currentBillingPeriodStart,
+          currentBillingPeriodEnd,
           stripePaymentStatus: session.payment_status,
           stripeInvoiceId: getStripeId(session.invoice),
 
@@ -209,6 +250,17 @@ export async function POST(req: Request) {
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
         const metadata = subscription.metadata ?? {};
+
+        const subscriptionItem = subscription.items.data[0];
+
+        const currentBillingPeriodStart = stripeTimestampToIso(
+          subscriptionItem?.current_period_start
+        );
+
+        const currentBillingPeriodEnd = stripeTimestampToIso(
+          subscriptionItem?.current_period_end
+        );
+
         const latestInvoiceId = getStripeId(subscription.latest_invoice);
 
         let paymentStatus = "";
@@ -217,6 +269,11 @@ export async function POST(req: Request) {
           const invoice = await stripe.invoices.retrieve(latestInvoiceId);
           paymentStatus = invoice.status ?? "";
         }
+
+        console.log("Subscription billing period values:", {
+          currentBillingPeriodStart,
+          currentBillingPeriodEnd,
+        });
 
         const payload: StripeUpdatePayload = {
           eventId: event.id,
@@ -238,6 +295,8 @@ export async function POST(req: Request) {
           stripeCustomerId: getStripeId(subscription.customer),
           stripeSubscriptionId: subscription.id,
           stripeSubscriptionStatus: subscription.status,
+          currentBillingPeriodStart,
+          currentBillingPeriodEnd,
           stripePaymentStatus: paymentStatus,
           stripeInvoiceId: latestInvoiceId,
 
@@ -280,6 +339,16 @@ export async function POST(req: Request) {
             await stripe.subscriptions.retrieve(subscriptionId);
         }
 
+        const subscriptionItem = subscription?.items.data[0];
+
+        const currentBillingPeriodStart = stripeTimestampToIso(
+          subscriptionItem?.current_period_start
+        );
+
+        const currentBillingPeriodEnd = stripeTimestampToIso(
+          subscriptionItem?.current_period_end
+        );
+
         const metadata =
           subscriptionDetails?.metadata ??
           subscription?.metadata ??
@@ -292,6 +361,11 @@ export async function POST(req: Request) {
             : event.type === "invoice.payment_action_required"
               ? "action_required"
               : "payment_failed";
+
+        console.log("Invoice billing period values:", {
+          currentBillingPeriodStart,
+          currentBillingPeriodEnd,
+        });
 
         const payload: StripeUpdatePayload = {
           eventId: event.id,
@@ -314,6 +388,8 @@ export async function POST(req: Request) {
           stripeCustomerId: getStripeId(invoice.customer),
           stripeSubscriptionId: subscriptionId,
           stripeSubscriptionStatus: subscription?.status ?? "",
+          currentBillingPeriodStart,
+          currentBillingPeriodEnd,
           stripePaymentStatus: paymentStatus,
           stripeInvoiceId: invoice.id,
 
@@ -361,6 +437,8 @@ export async function POST(req: Request) {
           stripeCustomerId: getStripeId(paymentMethod.customer),
           stripeSubscriptionId: "",
           stripeSubscriptionStatus: "",
+          currentBillingPeriodStart: "",
+          currentBillingPeriodEnd: "",
           stripePaymentStatus: "",
           stripeInvoiceId: "",
 
