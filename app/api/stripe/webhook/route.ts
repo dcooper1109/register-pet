@@ -582,7 +582,7 @@ export async function POST(req: Request) {
           affinityGroup: "",
           subscriptionType: "",
           subscriptionPrice: "",
-          memberSubID: "",
+          memberSubID: subscriptionMetadata.memberSubID ?? "",
           memberEmail: customer.email ?? "",
 
           registrationToken: "",
@@ -831,7 +831,7 @@ export async function POST(req: Request) {
           affinityGroup: metadata.affinityGroup ?? "",
           subscriptionType: metadata.subscriptionType ?? "",
           subscriptionPrice: metadata.subscriptionPrice ?? "",
-          memberSubID: metadata.memberSubID ?? "",
+          memberSubID: metadata.memberSubID ?? subscriptionMetadata.memberSubID ?? "",
           memberEmail: metadata.memberEmail ?? "",
 
           registrationToken: metadata.registrationToken ?? "",
