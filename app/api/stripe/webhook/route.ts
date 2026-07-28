@@ -1,10 +1,9 @@
-
 import Stripe from "stripe";
 import { headers } from "next/headers";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-const WEBHOOK_VERSION = "billing-period-fields-v2";
+const WEBHOOK_VERSION = "payment-method-events-v5";
 
 type StripeUpdatePayload = {
   eventId: string;
@@ -26,8 +25,6 @@ type StripeUpdatePayload = {
   stripeCustomerId: string;
   stripeSubscriptionId: string;
   stripeSubscriptionStatus: string;
-  currentBillingPeriodStart: string;
-  currentBillingPeriodEnd: string;
   stripePaymentStatus: string;
   stripeInvoiceId: string;
 
@@ -38,6 +35,19 @@ type StripeUpdatePayload = {
   cardExpirationMonth: number | null;
   cardExpirationYear: number | null;
   cardFingerprint: string;
+
+  subscriptionCreatedDate: string;
+  currentBillingPeriodStart: string;
+  currentBillingPeriodEnd: string;
+  cancelAt: string;
+  canceledAt: string;
+  endedAt: string;
+
+  lastPaymentDate: string;
+  nextPaymentAttempt: string;
+  lastPaymentAmount: number | null;
+  lastPaymentStatus: string;
+  paymentCompletedDate: string;
 };
 
 function getStripeId(
@@ -60,6 +70,17 @@ function stripeTimestampToIso(
   return new Date(timestamp * 1000).toISOString();
 }
 
+function getPreviousPaymentMethodCustomerId(
+  event: Stripe.Event
+): string {
+  const previousAttributes =
+    event.data.previous_attributes as
+      | { customer?: string | { id: string } | null }
+      | undefined;
+
+  return getStripeId(previousAttributes?.customer);
+}
+
 function getPaymentTrackingStatus(eventType: string): string {
   switch (eventType) {
     case "checkout.session.completed":
@@ -78,13 +99,68 @@ function getPaymentTrackingStatus(eventType: string): string {
       return "Payment Failed";
     case "invoice.payment_action_required":
       return "Customer Action Required";
+    case "customer.updated":
+      return "Default Payment Method Updated";
+    case "payment_method.attached":
+      return "Payment Method Added";
     case "payment_method.updated":
       return "Payment Method Updated";
     case "payment_method.automatically_updated":
       return "Payment Method Automatically Updated";
+    case "payment_method.detached":
+      return "Payment Method Removed";
     default:
       return "Stripe Event Received";
   }
+}
+
+async function getSubscriptionPaymentMethod(
+  subscription: Stripe.Subscription
+): Promise<Stripe.PaymentMethod | null> {
+  /*
+   * First preference:
+   * payment method explicitly assigned to the subscription.
+   */
+  const subscriptionPaymentMethodId = getStripeId(
+    subscription.default_payment_method
+  );
+
+  if (subscriptionPaymentMethodId) {
+    return await stripe.paymentMethods.retrieve(
+      subscriptionPaymentMethodId
+    );
+  }
+
+  /*
+   * Second preference:
+   * payment method inherited from the Stripe Customer.
+   */
+  const customerId = getStripeId(
+    subscription.customer
+  );
+
+  if (!customerId) {
+    return null;
+  }
+
+  const customer =
+    await stripe.customers.retrieve(customerId);
+
+  if (customer.deleted) {
+    return null;
+  }
+
+  const customerPaymentMethodId = getStripeId(
+    customer.invoice_settings.default_payment_method
+  );
+
+  if (!customerPaymentMethodId) {
+    return null;
+  }
+
+  return await stripe.paymentMethods.retrieve(
+    customerPaymentMethodId
+  );
 }
 
 async function sendStripeUpdate(payload: StripeUpdatePayload) {
@@ -165,17 +241,38 @@ export async function POST(req: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
         const metadata = session.metadata ?? {};
 
+        let subscription: Stripe.Subscription | null = null;
+        let paymentMethod: Stripe.PaymentMethod | null = null;
         let subscriptionStatus = "";
+        let subscriptionCreatedDate = "";
         let currentBillingPeriodStart = "";
         let currentBillingPeriodEnd = "";
+        let cancelAt = "";
+        let canceledAt = "";
+        let endedAt = "";
+        let lastPaymentDate = "";
+        let nextPaymentAttempt = "";
+        let lastPaymentAmount: number | null = null;
+        let lastPaymentStatus = "";
+        let paymentCompletedDate = "";
 
         const subscriptionId = getStripeId(session.subscription);
 
         if (subscriptionId) {
-          const subscription =
+          subscription =
             await stripe.subscriptions.retrieve(subscriptionId);
 
           subscriptionStatus = subscription.status;
+          subscriptionCreatedDate = stripeTimestampToIso(
+            subscription.created
+          );
+
+          cancelAt = stripeTimestampToIso(subscription.cancel_at);
+          canceledAt = stripeTimestampToIso(subscription.canceled_at);
+          endedAt = stripeTimestampToIso(subscription.ended_at);
+
+          paymentMethod =
+            await getSubscriptionPaymentMethod(subscription);
 
           const subscriptionItem = subscription.items.data[0];
 
@@ -186,6 +283,27 @@ export async function POST(req: Request) {
           currentBillingPeriodEnd = stripeTimestampToIso(
             subscriptionItem?.current_period_end
           );
+        }
+
+        const invoiceId = getStripeId(session.invoice);
+
+        if (invoiceId) {
+          const invoice = await stripe.invoices.retrieve(invoiceId);
+
+          lastPaymentDate = stripeTimestampToIso(
+            invoice.status_transitions?.paid_at
+          );
+
+          paymentCompletedDate = stripeTimestampToIso(
+            invoice.status_transitions?.paid_at
+          );
+
+          nextPaymentAttempt = stripeTimestampToIso(
+            invoice.next_payment_attempt
+          );
+
+          lastPaymentAmount = invoice.amount_paid / 100;
+          lastPaymentStatus = invoice.status ?? "";
         }
 
         console.log("Checkout billing period values:", {
@@ -220,15 +338,39 @@ export async function POST(req: Request) {
           currentBillingPeriodStart,
           currentBillingPeriodEnd,
           stripePaymentStatus: session.payment_status,
-          stripeInvoiceId: getStripeId(session.invoice),
+          stripeInvoiceId: invoiceId,
 
-          stripePaymentMethodId: "",
-          stripePaymentMethodType: "",
-          cardBrand: "",
-          cardLast4: "",
-          cardExpirationMonth: null,
-          cardExpirationYear: null,
-          cardFingerprint: "",
+          subscriptionCreatedDate,
+          cancelAt,
+          canceledAt,
+          endedAt,
+
+          lastPaymentDate,
+          nextPaymentAttempt,
+          lastPaymentAmount,
+          lastPaymentStatus,
+          paymentCompletedDate,
+
+          stripePaymentMethodId:
+            paymentMethod?.id ?? "",
+
+          stripePaymentMethodType:
+            paymentMethod?.type ?? "",
+
+          cardBrand:
+            paymentMethod?.card?.brand ?? "",
+
+          cardLast4:
+            paymentMethod?.card?.last4 ?? "",
+
+          cardExpirationMonth:
+            paymentMethod?.card?.exp_month ?? null,
+
+          cardExpirationYear:
+            paymentMethod?.card?.exp_year ?? null,
+
+          cardFingerprint:
+            paymentMethod?.card?.fingerprint ?? "",
         };
 
         console.log(
@@ -247,6 +389,21 @@ export async function POST(req: Request) {
         const subscription = event.data.object as Stripe.Subscription;
         const metadata = subscription.metadata ?? {};
 
+        const paymentMethod =
+          await getSubscriptionPaymentMethod(subscription);
+
+        const subscriptionCreatedDate =
+          stripeTimestampToIso(subscription.created);
+
+        const cancelAt =
+          stripeTimestampToIso(subscription.cancel_at);
+
+        const canceledAt =
+          stripeTimestampToIso(subscription.canceled_at);
+
+        const endedAt =
+          stripeTimestampToIso(subscription.ended_at);
+
         const subscriptionItem = subscription.items.data[0];
 
         const currentBillingPeriodStart = stripeTimestampToIso(
@@ -260,10 +417,27 @@ export async function POST(req: Request) {
         const latestInvoiceId = getStripeId(subscription.latest_invoice);
 
         let paymentStatus = "";
+        let lastPaymentDate = "";
+        let nextPaymentAttempt = "";
+        let lastPaymentAmount: number | null = null;
+        let lastPaymentStatus = "";
+        let paymentCompletedDate = "";
 
         if (latestInvoiceId) {
           const invoice = await stripe.invoices.retrieve(latestInvoiceId);
+
           paymentStatus = invoice.status ?? "";
+          lastPaymentDate = stripeTimestampToIso(
+            invoice.status_transitions?.paid_at
+          );
+          paymentCompletedDate = stripeTimestampToIso(
+            invoice.status_transitions?.paid_at
+          );
+          nextPaymentAttempt = stripeTimestampToIso(
+            invoice.next_payment_attempt
+          );
+          lastPaymentAmount = invoice.amount_paid / 100;
+          lastPaymentStatus = invoice.status ?? "";
         }
 
         console.log("Subscription billing period values:", {
@@ -296,17 +470,132 @@ export async function POST(req: Request) {
           stripePaymentStatus: paymentStatus,
           stripeInvoiceId: latestInvoiceId,
 
-          stripePaymentMethodId: "",
-          stripePaymentMethodType: "",
-          cardBrand: "",
-          cardLast4: "",
-          cardExpirationMonth: null,
-          cardExpirationYear: null,
-          cardFingerprint: "",
+          subscriptionCreatedDate,
+          cancelAt,
+          canceledAt,
+          endedAt,
+
+          lastPaymentDate,
+          nextPaymentAttempt,
+          lastPaymentAmount,
+          lastPaymentStatus,
+          paymentCompletedDate,
+
+          stripePaymentMethodId:
+            paymentMethod?.id ?? "",
+
+          stripePaymentMethodType:
+            paymentMethod?.type ?? "",
+
+          cardBrand:
+            paymentMethod?.card?.brand ?? "",
+
+          cardLast4:
+            paymentMethod?.card?.last4 ?? "",
+
+          cardExpirationMonth:
+            paymentMethod?.card?.exp_month ?? null,
+
+          cardExpirationYear:
+            paymentMethod?.card?.exp_year ?? null,
+
+          cardFingerprint:
+            paymentMethod?.card?.fingerprint ?? "",
         };
 
         console.log(
           "Subscription update payload:",
+          JSON.stringify(payload, null, 2)
+        );
+
+        await sendStripeUpdate(payload);
+        break;
+      }
+
+      case "customer.updated": {
+        const customer =
+          event.data.object as Stripe.Customer;
+
+        const defaultPaymentMethodId =
+          getStripeId(
+            customer.invoice_settings
+              .default_payment_method
+          );
+
+        let paymentMethod:
+          Stripe.PaymentMethod | null = null;
+
+        if (defaultPaymentMethodId) {
+          paymentMethod =
+            await stripe.paymentMethods.retrieve(
+              defaultPaymentMethodId
+            );
+        }
+
+        const payload: StripeUpdatePayload = {
+          eventId: event.id,
+          eventType: event.type,
+
+          partnerName: "",
+          affinityGroup: "",
+          subscriptionType: "",
+          subscriptionPrice: "",
+          memberSubID: "",
+          memberEmail: customer.email ?? "",
+
+          registrationToken: "",
+          paymentRecordId: "",
+          paymentTrackingStatus:
+            getPaymentTrackingStatus(event.type),
+
+          stripeCheckoutId: "",
+          stripeCheckoutURL: "",
+          stripeCustomerId: customer.id,
+          stripeSubscriptionId: "",
+          stripeSubscriptionStatus: "",
+
+          currentBillingPeriodStart: "",
+          currentBillingPeriodEnd: "",
+
+          cancelAt: "",
+          canceledAt: "",
+          endedAt: "",
+
+          stripePaymentStatus: "",
+          stripeInvoiceId: "",
+
+          subscriptionCreatedDate: "",
+          lastPaymentDate: "",
+          nextPaymentAttempt: "",
+
+          lastPaymentAmount: null,
+          lastPaymentStatus: "",
+          paymentCompletedDate: "",
+
+          stripePaymentMethodId:
+            paymentMethod?.id ?? "",
+
+          stripePaymentMethodType:
+            paymentMethod?.type ?? "",
+
+          cardBrand:
+            paymentMethod?.card?.brand ?? "",
+
+          cardLast4:
+            paymentMethod?.card?.last4 ?? "",
+
+          cardExpirationMonth:
+            paymentMethod?.card?.exp_month ?? null,
+
+          cardExpirationYear:
+            paymentMethod?.card?.exp_year ?? null,
+
+          cardFingerprint:
+            paymentMethod?.card?.fingerprint ?? "",
+        };
+
+        console.log(
+          "Customer payment method payload:",
           JSON.stringify(payload, null, 2)
         );
 
@@ -334,6 +623,44 @@ export async function POST(req: Request) {
           subscription =
             await stripe.subscriptions.retrieve(subscriptionId);
         }
+
+        const paymentMethod =
+          subscription
+            ? await getSubscriptionPaymentMethod(subscription)
+            : null;
+
+        const subscriptionCreatedDate = stripeTimestampToIso(
+          subscription?.created
+        );
+
+        const cancelAt = stripeTimestampToIso(
+          subscription?.cancel_at
+        );
+
+        const canceledAt = stripeTimestampToIso(
+          subscription?.canceled_at
+        );
+
+        const endedAt = stripeTimestampToIso(
+          subscription?.ended_at
+        );
+
+        const lastPaymentDate =
+          event.type === "invoice.paid"
+            ? stripeTimestampToIso(
+                invoice.status_transitions?.paid_at
+              )
+            : "";
+
+        const nextPaymentAttempt = stripeTimestampToIso(
+          invoice.next_payment_attempt
+        );
+
+        const lastPaymentAmount = invoice.amount_paid / 100;
+        const lastPaymentStatus = invoice.status ?? "";
+        const paymentCompletedDate = stripeTimestampToIso(
+          invoice.status_transitions?.paid_at
+        );
 
         const subscriptionItem = subscription?.items.data[0];
 
@@ -389,13 +716,37 @@ export async function POST(req: Request) {
           stripePaymentStatus: paymentStatus,
           stripeInvoiceId: invoice.id,
 
-          stripePaymentMethodId: "",
-          stripePaymentMethodType: "",
-          cardBrand: "",
-          cardLast4: "",
-          cardExpirationMonth: null,
-          cardExpirationYear: null,
-          cardFingerprint: "",
+          subscriptionCreatedDate,
+          cancelAt,
+          canceledAt,
+          endedAt,
+
+          lastPaymentDate,
+          nextPaymentAttempt,
+          lastPaymentAmount,
+          lastPaymentStatus,
+          paymentCompletedDate,
+
+          stripePaymentMethodId:
+            paymentMethod?.id ?? "",
+
+          stripePaymentMethodType:
+            paymentMethod?.type ?? "",
+
+          cardBrand:
+            paymentMethod?.card?.brand ?? "",
+
+          cardLast4:
+            paymentMethod?.card?.last4 ?? "",
+
+          cardExpirationMonth:
+            paymentMethod?.card?.exp_month ?? null,
+
+          cardExpirationYear:
+            paymentMethod?.card?.exp_year ?? null,
+
+          cardFingerprint:
+            paymentMethod?.card?.fingerprint ?? "",
         };
 
         console.log(
@@ -407,11 +758,21 @@ export async function POST(req: Request) {
         break;
       }
 
+      case "payment_method.attached":
       case "payment_method.updated":
-      case "payment_method.automatically_updated": {
+      case "payment_method.automatically_updated":
+      case "payment_method.detached": {
         const paymentMethod =
           event.data.object as Stripe.PaymentMethod;
         const metadata = paymentMethod.metadata ?? {};
+
+        /*
+         * After payment_method.detached, paymentMethod.customer can be null.
+         * Stripe may include the prior customer in previous_attributes.
+         */
+        const paymentMethodCustomerId =
+          getStripeId(paymentMethod.customer) ||
+          getPreviousPaymentMethodCustomerId(event);
 
         const payload: StripeUpdatePayload = {
           eventId: event.id,
@@ -430,13 +791,23 @@ export async function POST(req: Request) {
 
           stripeCheckoutId: "",
           stripeCheckoutURL: "",
-          stripeCustomerId: getStripeId(paymentMethod.customer),
+          stripeCustomerId: paymentMethodCustomerId,
           stripeSubscriptionId: "",
           stripeSubscriptionStatus: "",
           currentBillingPeriodStart: "",
           currentBillingPeriodEnd: "",
           stripePaymentStatus: "",
           stripeInvoiceId: "",
+
+          subscriptionCreatedDate: "",
+          cancelAt: "",
+          canceledAt: "",
+          endedAt: "",
+          lastPaymentDate: "",
+          nextPaymentAttempt: "",
+          lastPaymentAmount: null,
+          lastPaymentStatus: "",
+          paymentCompletedDate: "",
 
           stripePaymentMethodId: paymentMethod.id,
           stripePaymentMethodType: paymentMethod.type,
