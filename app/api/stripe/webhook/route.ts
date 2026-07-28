@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-const WEBHOOK_VERSION = "payment-method-events-v5";
+const WEBHOOK_VERSION = "payment-record-id-v6";
 
 type StripeUpdatePayload = {
   eventId: string;
@@ -161,6 +161,42 @@ async function getSubscriptionPaymentMethod(
   return await stripe.paymentMethods.retrieve(
     customerPaymentMethodId
   );
+}
+
+
+async function getCustomerSubscriptionMetadata(
+  customerId: string
+): Promise<{
+  subscription: Stripe.Subscription | null;
+  metadata: Stripe.Metadata;
+}> {
+  if (!customerId) {
+    return {
+      subscription: null,
+      metadata: {},
+    };
+  }
+
+  const subscriptions = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 100,
+  });
+
+  const subscription =
+    subscriptions.data.find(
+      (item) =>
+        item.status === "active" ||
+        item.status === "trialing" ||
+        item.status === "past_due"
+    ) ??
+    subscriptions.data[0] ??
+    null;
+
+  return {
+    subscription,
+    metadata: subscription?.metadata ?? {},
+  };
 }
 
 async function sendStripeUpdate(payload: StripeUpdatePayload) {
@@ -532,6 +568,12 @@ export async function POST(req: Request) {
             );
         }
 
+        const {
+          metadata: subscriptionMetadata,
+        } = await getCustomerSubscriptionMetadata(
+          customer.id
+        );
+
         const payload: StripeUpdatePayload = {
           eventId: event.id,
           eventType: event.type,
@@ -544,7 +586,8 @@ export async function POST(req: Request) {
           memberEmail: customer.email ?? "",
 
           registrationToken: "",
-          paymentRecordId: "",
+          paymentRecordId:
+            subscriptionMetadata.paymentRecordId ?? "",
           paymentTrackingStatus:
             getPaymentTrackingStatus(event.type),
 
@@ -774,6 +817,12 @@ export async function POST(req: Request) {
           getStripeId(paymentMethod.customer) ||
           getPreviousPaymentMethodCustomerId(event);
 
+        const {
+          metadata: subscriptionMetadata,
+        } = await getCustomerSubscriptionMetadata(
+          paymentMethodCustomerId
+        );
+
         const payload: StripeUpdatePayload = {
           eventId: event.id,
           eventType: event.type,
@@ -786,7 +835,10 @@ export async function POST(req: Request) {
           memberEmail: metadata.memberEmail ?? "",
 
           registrationToken: metadata.registrationToken ?? "",
-          paymentRecordId: metadata.paymentRecordId ?? "",
+          paymentRecordId:
+            metadata.paymentRecordId ??
+            subscriptionMetadata.paymentRecordId ??
+            "",
           paymentTrackingStatus: getPaymentTrackingStatus(event.type),
 
           stripeCheckoutId: "",
