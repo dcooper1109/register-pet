@@ -543,7 +543,7 @@ export default function Home() {
           setResult(
             "Registration succeeded, but the partner return URL was not received."
           );
-        }, 5000);
+        }, 2000);
       } else {
         let responseBody =
           data?.response?.body ??
