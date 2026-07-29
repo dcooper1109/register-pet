@@ -1276,19 +1276,12 @@ const faqButtonRowStyle: React.CSSProperties = {
 };
 
 const faqButtonStyle: React.CSSProperties = {
+  ...primaryButtonStyle,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  minHeight: 42,
-  padding: "10px 18px",
-  border: "none",
-  borderRadius: 10,
-  backgroundColor: emerald,
-  color: "#ffffff",
-  fontSize: 15,
-  fontWeight: 700,
-  cursor: "pointer",
-  boxShadow: "0 4px 12px rgba(4, 120, 87, 0.25)",
+  minWidth: 120,
+  whiteSpace: "nowrap",
 };
 
 const phoneInputContainerStyle: React.CSSProperties = {
@@ -1296,7 +1289,7 @@ const phoneInputContainerStyle: React.CSSProperties = {
   height: 42,
   display: "flex",
   alignItems: "center",
-  padding: "0 11px",
+    padding: "0 11px",
   border: "1px solid #9ca3af",
   borderRadius: 8,
   backgroundColor: "#ffffff",
