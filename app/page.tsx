@@ -1268,20 +1268,39 @@ const responseTextAreaStyle: React.CSSProperties = {
   overflow: "hidden",
 };
 
-
 const faqButtonRowStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "flex-end",
+  alignItems: "center",
   marginBottom: 20,
 };
 
 const faqButtonStyle: React.CSSProperties = {
-  ...primaryButtonStyle,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  minWidth: 120,
+  gap: 5,
+
+  height: 30,
+  padding: "0 12px",
+
+  backgroundColor: emerald, // or "#3d7a4a"
+
+  color: "#fff",
+  border: "none",
+  borderRadius: 999,
+
+  fontSize: 11,
+  fontWeight: 700,
+  fontFamily: "Arial, Helvetica, sans-serif",
+
+  textDecoration: "none",
   whiteSpace: "nowrap",
+
+  boxShadow: "0 1px 4px rgba(0,0,0,.15)",
+
+  cursor: "pointer",
+  transition: "all .2s ease",
 };
 
 const phoneInputContainerStyle: React.CSSProperties = {
