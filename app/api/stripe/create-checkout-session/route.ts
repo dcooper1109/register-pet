@@ -375,6 +375,15 @@ export async function POST(request: Request) {
       process.env.NEXT_PUBLIC_BASE_URL ??
       "https://register.petvantagerx.com";
 
+    const stripeProductId =
+      process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID;
+
+    if (!stripeProductId) {
+      throw new Error(
+        "STRIPE_SUBSCRIPTION_PRODUCT_ID is not configured."
+      );
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer_email: memberEmail,
@@ -388,10 +397,7 @@ export async function POST(request: Request) {
             recurring: {
               interval: "month",
             },
-            product_data: {
-              name: verifiedSubscriptionType,
-              description: "PetVantageRx monthly subscription",
-            },
+            product: stripeProductId,
           },
           quantity: 1,
         },
