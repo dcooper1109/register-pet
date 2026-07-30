@@ -60,6 +60,20 @@ function getStripeId(
   return typeof value === "string" ? value : value.id;
 }
 
+function getSubscriptionPrice(
+  subscription: Stripe.Subscription | null | undefined,
+  metadata: Stripe.Metadata
+): string {
+  const unitAmount =
+    subscription?.items.data[0]?.price?.unit_amount;
+
+  if (typeof unitAmount === "number") {
+    return (unitAmount / 100).toFixed(2);
+  }
+
+  return metadata.subscriptionPrice ?? "";
+}
+
 function stripeTimestampToIso(
   timestamp: number | null | undefined
 ): string {
@@ -354,7 +368,7 @@ export async function POST(req: Request) {
           partnerName: metadata.partnerName ?? "",
           affinityGroup: metadata.affinityGroup ?? "",
           subscriptionType: metadata.subscriptionType ?? "",
-          subscriptionPrice: metadata.subscriptionPrice ?? "",
+          subscriptionPrice: getSubscriptionPrice(subscription, metadata),
           memberSubID: metadata.memberSubID ?? "",
           memberEmail:
             metadata.memberEmail ??
@@ -488,7 +502,7 @@ export async function POST(req: Request) {
           partnerName: metadata.partnerName ?? "",
           affinityGroup: metadata.affinityGroup ?? "",
           subscriptionType: metadata.subscriptionType ?? "",
-          subscriptionPrice: metadata.subscriptionPrice ?? "",
+          subscriptionPrice: getSubscriptionPrice(subscription, metadata),
           memberSubID: metadata.memberSubID ?? "",
           memberEmail: metadata.memberEmail ?? "",
 
@@ -740,7 +754,7 @@ export async function POST(req: Request) {
           partnerName: metadata.partnerName ?? "",
           affinityGroup: metadata.affinityGroup ?? "",
           subscriptionType: metadata.subscriptionType ?? "",
-          subscriptionPrice: metadata.subscriptionPrice ?? "",
+          subscriptionPrice: getSubscriptionPrice(subscription, metadata),
           memberSubID: metadata.memberSubID ?? "",
           memberEmail:
             metadata.memberEmail ?? invoice.customer_email ?? "",
