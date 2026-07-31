@@ -265,6 +265,7 @@ export async function POST(request: Request) {
      * Verify the current matched subscription type and price
      * using the server-side Get Price API.
      */
+    /*
     const priceUrl = process.env.GET_PRICE_URL;
     const priceKey = process.env.GET_PRICE_SUBSCRIPTION_KEY;
 
@@ -284,6 +285,7 @@ export async function POST(request: Request) {
       }),
       cache: "no-store",
     });
+    
 
     if (!priceResponse.ok) {
       const errorText = await priceResponse.text();
@@ -316,6 +318,7 @@ export async function POST(request: Request) {
         { status: 502 }
       );
     }
+*/
 
     const normalizedRequestedType = String(subscriptionType)
       .trim()

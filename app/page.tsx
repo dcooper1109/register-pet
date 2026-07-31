@@ -292,78 +292,92 @@ export default function Home() {
         typeof responseBody === "object" &&
         responseBody?.success === true
       ) {
-        if (addForm.partnerName.trim() === "Direct Registration") {
-          setResult("Registration saved. Preparing secure payment...");
+      if (addForm.partnerName.trim() === "Direct Registration") {
+        setResult("Registration saved. Preparing secure payment...");
 
-          const registrationToken =
-            responseBody?.registrationToken ??
-            data?.registrationToken ??
-            data?.body?.registrationToken ??
-            data?.response?.registrationToken ??
-            data?.response?.body?.registrationToken;
+        const registrationToken =
+          String(responseBody?.registrationToken ?? "").trim();
 
-          if (!registrationToken) {
-
-            console.error(
-              "Registration token missing. Full response:",
-              data
-            );
-
-            setIsError(true);
-            setIsSubmitting(false);
-            setResult(
-              "The pending registration was created, but its registration ID was not returned."
-            );
-            return;
-          }
-
-          console.log(
-            "Registration token received:",
-            registrationToken
+        if (!registrationToken) {
+          console.error(
+            "Registration token missing. Full response:",
+            data
           );
 
-          const checkoutResponse = await fetch(
-            "/api/stripe/create-checkout-session",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                registrationToken,
-                subscriptionType: addForm.subscriptionType,
-                subscriptionPrice: addForm.subscriptionPrice,
-                memberEmail: addForm.memberEmail,
-                memberSubID: addForm.memberSubID,
-                partnerName: addForm.partnerName,
-                affinityGroup: addForm.affinityGroup,
-              }),
-            }
+          setIsError(true);
+          setIsSubmitting(false);
+          setResult(
+            "The pending registration was created, but its registration ID was not returned."
           );
-
-          const checkoutData = await checkoutResponse.json();
-
-          if (
-            !checkoutResponse.ok ||
-            !checkoutData.success ||
-            !checkoutData.checkoutUrl
-          ) {
-            const checkoutError =
-              checkoutData?.message ||
-              checkoutData?.error ||
-              "Unable to start Stripe Checkout.";
-
-            setIsError(true);
-            setIsSubmitting(false);
-            setResult(checkoutError);
-            return;
-          }
-
-          window.top!.location.href =
-            checkoutData.checkoutUrl;
-
           return;
         }
+
+        const verifiedSubscriptionType =
+          String(responseBody?.subscriptionType ?? "").trim();
+
+        const verifiedSubscriptionPrice =
+          String(responseBody?.subscriptionPrice ?? "").trim();
+
+        if (
+          !verifiedSubscriptionType ||
+          !verifiedSubscriptionPrice
+        ) {
+          console.error(
+            "Subscription type or price missing from pet-service response:",
+            responseBody
+          );
+
+          setIsError(true);
+          setIsSubmitting(false);
+          setResult(
+            "The registration was created, but the verified subscription type or price was not returned."
+          );
+          return;
+        }
+
+        const checkoutResponse = await fetch(
+          "/api/stripe/create-checkout-session",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              registrationToken,
+              subscriptionType: verifiedSubscriptionType,
+              subscriptionPrice: verifiedSubscriptionPrice,
+              memberEmail: addForm.memberEmail,
+              memberSubID: addForm.memberSubID,
+              partnerName: addForm.partnerName,
+              affinityGroup: addForm.affinityGroup,
+            }),
+          }
+        );
+
+        const checkoutData = await checkoutResponse.json();
+
+        if (
+          !checkoutResponse.ok ||
+          checkoutData?.success !== true ||
+          !checkoutData?.checkoutUrl
+        ) {
+          const checkoutError =
+            checkoutData?.message ||
+            checkoutData?.error ||
+            "Unable to start Stripe Checkout.";
+
+          setIsError(true);
+          setIsSubmitting(false);
+          setResult(checkoutError);
+          return;
+        }
+
+        window.top?.location.replace(
+          checkoutData.checkoutUrl
+        );
+
+        return;
+      }
 
         // Existing non-direct registration logic continues here.
         setResult("Registration successful. Redirecting...");
