@@ -3,11 +3,6 @@ import { NextResponse } from "next/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-type PriceApiResult = {
-  subscriptionType: string;
-  subscriptionPrice: number | string;
-};
-
 type CreatePaymentRecordInput = {
   registrationToken: string;
   memberSubID: string;
@@ -90,30 +85,6 @@ function extractResponseBody(data: any): any {
   }
 
   return responseBody;
-}
-
-function extractAvailablePrices(priceData: any): PriceApiResult[] {
-  const parsedTopLevel = parsePossibleJson(priceData);
-  const parsedBody = parsePossibleJson((parsedTopLevel as any)?.body);
-  const parsedResponseBody = parsePossibleJson(
-    (parsedTopLevel as any)?.response?.body
-  );
-
-  const possibleArrays = [
-    parsedTopLevel,
-    (parsedTopLevel as any)?.subscriptionOptions,
-    (parsedTopLevel as any)?.prices,
-    parsedBody,
-    (parsedBody as any)?.subscriptionOptions,
-    (parsedBody as any)?.prices,
-    parsedResponseBody,
-    (parsedResponseBody as any)?.subscriptionOptions,
-    (parsedResponseBody as any)?.prices,
-  ];
-
-  const found = possibleArrays.find((value) => Array.isArray(value));
-
-  return Array.isArray(found) ? found : [];
 }
 
 async function createPaymentRecord(
@@ -237,6 +208,7 @@ export async function POST(request: Request) {
 
     const {
       subscriptionType,
+      subscriptionPrice,
       affinityGroup,
     } = body;
 
@@ -245,13 +217,16 @@ export async function POST(request: Request) {
     memberSubID = String(body.memberSubID ?? "").trim();
     memberEmail = String(body.memberEmail ?? "").trim();
 
-    if (
-      !registrationToken ||
-      !subscriptionType ||
-      !memberEmail ||
-      !memberSubID ||
-      !partnerName
-    ) {
+      if (
+        !registrationToken ||
+        !subscriptionType ||
+        subscriptionPrice === null ||
+        subscriptionPrice === undefined ||
+        subscriptionPrice === "" ||
+        !memberEmail ||
+        !memberSubID ||
+        !partnerName
+      ) {
       return NextResponse.json(
         {
           success: false,
@@ -261,107 +236,15 @@ export async function POST(request: Request) {
       );
     }
 
-    /*
-     * Verify the current matched subscription type and price
-     * using the server-side Get Price API.
-     */
-    /*
-    const priceUrl = process.env.GET_PRICE_URL;
-    const priceKey = process.env.GET_PRICE_SUBSCRIPTION_KEY;
+    const verifiedSubscriptionType =
+      String(subscriptionType).trim();
 
-    if (!priceUrl || !priceKey) {
-      throw new Error("Get Price API configuration is missing.");
-    }
+    const unitAmount =
+      convertDollarsToCents(subscriptionPrice);
 
-    const priceResponse = await fetch(priceUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Ocp-Apim-Subscription-Key": priceKey,
-      },
-      body: JSON.stringify({
-        partnerName,
-        affinityGroup,
-      }),
-      cache: "no-store",
-    });
-    
+    const verifiedSubscriptionPrice =
+      (unitAmount / 100).toFixed(2);
 
-    if (!priceResponse.ok) {
-      const errorText = await priceResponse.text();
-      console.error("Get Price API error:", errorText);
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unable to verify the subscription price.",
-        },
-        { status: 502 }
-      );
-    }
-
-    const priceData = await priceResponse.json();
-    const availablePrices = extractAvailablePrices(priceData);
-
-    if (availablePrices.length === 0) {
-      console.error(
-        "Unexpected Get Price API response:",
-        JSON.stringify(priceData, null, 2)
-      );
-
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "The Get Price API did not return any subscription options.",
-        },
-        { status: 502 }
-      );
-    }
-*/
-
-    const normalizedRequestedType = String(subscriptionType)
-      .trim()
-      .toLowerCase();
-
-    const matchedPrice = availablePrices.find((item) => {
-      if (!item?.subscriptionType) {
-        return false;
-      }
-
-      return (
-        String(item.subscriptionType).trim().toLowerCase() ===
-        normalizedRequestedType
-      );
-    });
-
-    if (!matchedPrice) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "The selected subscription type is no longer available.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const unitAmount = convertDollarsToCents(
-      matchedPrice.subscriptionPrice
-    );
-
-    const verifiedSubscriptionType = String(
-      matchedPrice.subscriptionType
-    ).trim();
-
-    const verifiedSubscriptionPrice = (
-      unitAmount / 100
-    ).toFixed(2);
-
-    /*
-     * Create the Auction Pet Registration Payment row
-     * before creating the Stripe Checkout Session.
-     */
     const paymentRecord = await createPaymentRecord({
       registrationToken,
       memberSubID,
@@ -373,10 +256,11 @@ export async function POST(request: Request) {
     });
 
     paymentRecordId = paymentRecord.paymentRecordId;
-
+/*
     const baseUrl =
       process.env.NEXT_PUBLIC_BASE_URL ??
       "https://register.petvantagerx.com";
+      */
 
     const stripeProductId =
       process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID;
