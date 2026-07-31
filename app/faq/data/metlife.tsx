@@ -1,8 +1,8 @@
 import type { FaqItem } from "./types";
 
-export const fairshareFaqs: FaqItem[] = [
+export const metlifeFaqs: FaqItem[] = [
     {
-    question: "What are the key benefits of the FairShare program?",
+    question: "What are the key benefits of the MetLife program?",
     answer: (
       <>
         <p>
