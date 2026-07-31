@@ -5,4 +5,5 @@ import { testclientFaqs } from "./testclient";
 export const partnerFaqs: Record<string, FaqItem[]> = {
   fairshare: fairshareFaqs,
   testclient: testclientFaqs,
+  metlife: metlifeFaqs,
 };
