@@ -313,7 +313,7 @@ export async function POST(request: Request) {
       },
 
       success_url:
-        "https://purchase.petvantagerx.com/" +
+        "https://login.petvantagerx.com/" +
         "?stripe_session_id={CHECKOUT_SESSION_ID}",
 
       cancel_url:
