@@ -790,11 +790,6 @@ export default function Home() {
                   value={pet.petSpecies}
                   onChange={(v) => updatePet(index, "petSpecies", v)}
                 />
-                <Input
-                  label="Pet Breed"
-                  value={pet.petBreed}
-                  onChange={(v) => updatePet(index, "petBreed", v)}
-                />
                 <div>
                   <label style={labelStyle}>
                     Pet Sex
