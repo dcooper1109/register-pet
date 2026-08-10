@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
         return_url:
           process.env.STRIPE_PORTAL_RETURN_URL ??
-          "https://purchase.petvantagerx.com",
+          "https://login.petvantagerx.com",
       });
 
     return Response.json({
