@@ -643,11 +643,15 @@ export default function Home() {
             <button
               type="button"
               style={faqButtonStyle}
-              onClick={() =>
+              onClick={() => {
+                const registrationUrl = window.location.href;
+
                 router.push(
-                  `/faq?partner=${encodeURIComponent(faqSource)}`
-                )
-              }
+                  `/faq?partner=${encodeURIComponent(
+                    faqSource
+                  )}&returnUrl=${encodeURIComponent(registrationUrl)}`
+                );
+              }}
             >
               ❓ FAQ
             </button>
