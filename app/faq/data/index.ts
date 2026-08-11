@@ -2,7 +2,7 @@ import type { FaqItem } from "./types";
 import { fairshareFaqs } from "./fairshare";
 import { testclientFaqs } from "./testclient";
 import { metlifeFaqs } from "./metlife";
-import { metlifeFaqs, teletailsFaqs } from "./teletails";
+import { teletailsFaqs, teletailsFaqs } from "./teletails";
 
 export const partnerFaqs: Record<string, FaqItem[]> = {
   fairshare: fairshareFaqs,
