@@ -654,12 +654,7 @@ export default function Home() {
               readOnly
             />
 
-            {hidePartnerFields ? (
-              <>
-                <div />
-                <div />
-              </>
-            ) : (
+            {!hidePartnerFields && (
               <>
                 <Input
                   required
@@ -668,9 +663,10 @@ export default function Home() {
                   onChange={(v) => updateAddForm("partnerName", v)}
                   readOnly
                 />
+
                 <Input
                   required
-                  label="Group"
+                  label="Affinity Group"
                   value={addForm.affinityGroup}
                   onChange={(v) => updateAddForm("affinityGroup", v)}
                   readOnly
