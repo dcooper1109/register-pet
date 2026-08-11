@@ -188,6 +188,21 @@ export default function Home() {
           }));
 
       setSubscriptionOptions(options);
+
+      const unlimitedOption = options.find(
+        (option) =>
+          option.subscriptionType.trim().toLowerCase() === "unlimited"
+      );
+
+      if (unlimitedOption) {
+        setAddForm((prev) => ({
+          ...prev,
+          subscriptionType: unlimitedOption.subscriptionType,
+          subscriptionPrice: unlimitedOption.subscriptionPrice.toString(),
+        }));
+
+        setPets((prevPets) => buildPets(1, prevPets));
+      }
     } catch (error) {
       console.error(
         "Subscription pricing error:",
@@ -585,6 +600,7 @@ export default function Home() {
 
   const hidePartnerFields = addForm.partnerName === "Direct Registration";
   const submitDisabled = isSubmitting || !termsAccepted;
+  const isUnlimitedSubscription = addForm.subscriptionType.trim().toLowerCase() === "unlimited";
 
   const normalizedFaqSource = normalizePartnerName(faqSource);
   const currentPartnerFaqs =
@@ -674,43 +690,56 @@ export default function Home() {
               </>
             )}
 
-            <div>
-              <label style={labelStyle}>Subscription Type</label>
-              <select
-                value={addForm.subscriptionType}
-                onChange={(e) => handleSubscriptionTypeChange(e.target.value)}
-                style={inputStyle}
-                disabled={loadingPrices || subscriptionOptions.length === 0}
-              >
-                <option value="">
-                  {loadingPrices
-                    ? "Loading subscription options..."
-                    : "Select Subscription Type"}
-                </option>
+            {!isUnlimitedSubscription && (
+              <>
+                <div>
+                  <label style={labelStyle}>Subscription Type</label>
 
-                {subscriptionOptions.map((option) => (
-                  <option
-                    key={option.subscriptionType}
-                    value={option.subscriptionType}
+                  <select
+                    value={addForm.subscriptionType}
+                    onChange={(e) =>
+                      handleSubscriptionTypeChange(e.target.value)
+                    }
+                    style={inputStyle}
+                    disabled={
+                      loadingPrices ||
+                      subscriptionOptions.length === 0
+                    }
                   >
-                    {option.subscriptionType}
-                  </option>
-                ))}
-              </select>
-            </div>
+                    <option value="">
+                      {loadingPrices
+                        ? "Loading subscription options..."
+                        : "Select Subscription Type"}
+                    </option>
 
-            <div>
-              <label style={labelStyle}>Price</label>
-              <input
-                value={getSubscriptionPrice(addForm.subscriptionType)}
-                readOnly
-                style={{
-                  ...inputStyle,
-                  fontWeight: "bold",
-                  backgroundColor: "#f9fafb",
-                }}
-              />
-            </div>
+                    {subscriptionOptions.map((option) => (
+                      <option
+                        key={option.subscriptionType}
+                        value={option.subscriptionType}
+                      >
+                        {option.subscriptionType}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Price</label>
+
+                  <input
+                    value={getSubscriptionPrice(
+                      addForm.subscriptionType
+                    )}
+                    readOnly
+                    style={{
+                      ...inputStyle,
+                      fontWeight: "bold",
+                      backgroundColor: "#f9fafb",
+                    }}
+                  />
+                </div>
+              </>
+            )}
 
             <Input
               required
