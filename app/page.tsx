@@ -663,7 +663,7 @@ export default function Home() {
             Register and Add Information
           </h2>
 
-          <h3 style={subSectionTitleStyle}>Enrollee Information</h3>
+          <h3 style={subSectionTitleStyle}>Enrolee Information</h3>
 
           <div style={gridStyle}>
             <Input
