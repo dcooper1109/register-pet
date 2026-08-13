@@ -660,15 +660,15 @@ export default function Home() {
 
         <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>
-            Create Subscription and Add Pet Information
+            Register and Add Information
           </h2>
 
-          <h3 style={subSectionTitleStyle}>Subscriber Information</h3>
+          <h3 style={subSectionTitleStyle}>Enrollee Information</h3>
 
           <div style={gridStyle}>
             <Input
               required
-              label="Member Subscription ID"
+              label="Subscription ID"
               value={addForm.memberSubID}
               onChange={(v) => updateAddForm("memberSubID", v)}
               readOnly
