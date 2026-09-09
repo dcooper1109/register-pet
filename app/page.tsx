@@ -233,7 +233,16 @@ export default function Home() {
     const payload = {
       ...addForm,
       mobilePhone: addForm.memberPhone,
-      pets,
+
+      pets: pets.map((pet) => ({
+        petName: pet.petName,
+        petSpecies: pet.petSpecies,
+        petBreed: pet.petBreed,
+        ...(pet.petSex.trim()
+          ? { petSex: pet.petSex }
+          : {}),
+      })),
+
       termsAccepted,
       termsAcceptedAt: new Date().toISOString(),
       termsVersion: "2026-06-24",
@@ -427,19 +436,24 @@ export default function Home() {
           }
         }
 
-        const errorMessage =
-          responseBody?.results ||
-          responseBody?.message ||
-          responseBody?.error ||
-          data?.response?.body?.results ||
-          data?.response?.results ||
-          data?.body?.results ||
-          data?.results ||
-          data?.message ||
-          data?.error ||
-          (typeof responseBody === "string" ? responseBody : "") ||
-          "Request failed.";
-
+      const errorMessage =
+        responseBody?.results ||
+        responseBody?.message ||
+        responseBody?.error?.message ||
+        responseBody?.error?.code ||
+        data?.response?.body?.results ||
+        data?.response?.results ||
+        data?.body?.results ||
+        data?.results ||
+        data?.message ||
+        data?.error?.message ||
+        data?.error?.code ||
+        (typeof responseBody === "string"
+          ? responseBody
+          : JSON.stringify(responseBody)) ||
+        "Request failed.";
+        console.log("Registration error response:", data);
+        console.log("Registration parsed error:", responseBody);
         setResult(errorMessage);
         setIsError(true);
         setIsSubmitting(false);
@@ -539,7 +553,7 @@ export default function Home() {
       const incompletePets: number[] = [];
 
       pets.slice(0, requiredPetCount).forEach((pet, index) => {
-        if (!pet.petName.trim() || !pet.petSpecies.trim() || !pet.petSex.trim()) {
+        if (!pet.petName.trim() || !pet.petSpecies.trim()) {
           incompletePets.push(index + 1);
         }
       });
@@ -565,7 +579,7 @@ export default function Home() {
 
         if (incompletePets.length > 0) {
           message +=
-            "\n\nComplete Pet Name, Pet Species, and Pet Sex for Pet Information " +
+            "\n\nComplete Pet Name and Pet Species for Pet Information " +
             incompletePets.join(", ") +
             ".";
         }
@@ -813,16 +827,32 @@ export default function Home() {
                   value={pet.petName}
                   onChange={(v) => updatePet(index, "petName", v)}
                 />
-                <Input
-                  required
-                  label="Pet Species"
-                  value={pet.petSpecies}
-                  onChange={(v) => updatePet(index, "petSpecies", v)}
-                />
                 <div>
                   <label style={labelStyle}>
-                    Pet Sex
+                    Pet Species
                     <span style={requiredStyle}> *</span>
+                  </label>
+
+                  <select
+                    value={pet.petSpecies}
+                    onChange={(e) =>
+                      updatePet(index, "petSpecies", e.target.value)
+                    }
+                    style={inputStyle}
+                  >
+                    <option value="">Select Pet Species</option>
+                    <option value="Bird">Bird</option>
+                    <option value="Cat">Cat</option>
+                    <option value="Dog">Dog</option>
+                    <option value="Fish">Fish</option>
+                    <option value="Horse">Horse</option>
+                    <option value="Reptile">Reptile</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>
+                    Pet Gender
                   </label>
 
                   <select
