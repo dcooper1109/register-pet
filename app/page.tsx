@@ -588,6 +588,15 @@ export default function Home() {
         return false;
       }
 
+      const email = addForm.memberEmail.trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!emailRegex.test(email)) {
+        setIsError(true);
+        setResult("Please enter a valid email address.");
+        return false;
+      }
+
       if (!isValidPhoneNumber(addForm.memberPhone)) {
         setIsError(true);
         setResult(
@@ -773,6 +782,7 @@ export default function Home() {
             />
             <Input
               required
+              type="email"
               label="Member Email"
               value={addForm.memberEmail}
               onChange={(v) => updateAddForm("memberEmail", v)}
@@ -1044,12 +1054,14 @@ function Input({
   onChange,
   required = false,
   readOnly = false,
+  type = "text",
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
   readOnly?: boolean;
+  type?: React.HTMLInputTypeAttribute;
 }) {
   return (
     <div>
@@ -1058,6 +1070,7 @@ function Input({
         {required && <span style={requiredStyle}> *</span>}
       </label>
       <input
+        type={type}
         value={value}
         placeholder={`Enter ${label}`}
         onChange={(e) => onChange(e.target.value)}
