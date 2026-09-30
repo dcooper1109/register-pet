@@ -103,6 +103,7 @@ export async function POST(req: Request) {
         ? {
             ...payload,
 
+            subscriptionStatus: "Active",
             termsAccepted: true,
             termsVersion: payload.termsVersion.trim(),
             termsAcceptanceSource: "register-pet",

@@ -232,6 +232,7 @@ export default function Home() {
 
     const payload = {
       ...addForm,
+
       mobilePhone: addForm.memberPhone,
 
       pets: pets.map((pet) => ({
@@ -589,7 +590,8 @@ export default function Home() {
       }
 
       const email = addForm.memberEmail.trim();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const emailRegex =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
 
       if (!emailRegex.test(email)) {
         setIsError(true);
