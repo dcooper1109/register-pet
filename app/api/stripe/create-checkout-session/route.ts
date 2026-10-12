@@ -256,11 +256,13 @@ export async function POST(request: Request) {
     });
 
     paymentRecordId = paymentRecord.paymentRecordId;
-/*
     const baseUrl =
       process.env.NEXT_PUBLIC_BASE_URL ??
       "https://register.petvantagerx.com";
-      */
+
+    const dashboardUrl =
+      process.env.DASHBOARD_BASE_URL ??
+      "https://dashboard.petvantagerx.com";
 
     const stripeProductId =
       process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID;
@@ -313,11 +315,11 @@ export async function POST(request: Request) {
       },
 
       success_url:
-        "https://dashboard.petvantagerx.com/" +
+        `${dashboardUrl}/` +
         "?stripe_session_id={CHECKOUT_SESSION_ID}",
 
       cancel_url:
-        "https://register.petvantagerx.com/" +
+        `${baseUrl}/` +
         `?payment=cancelled` +
         `&registrationToken=${encodeURIComponent(registrationToken)}`,
     });
