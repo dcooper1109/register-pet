@@ -12,6 +12,8 @@ import PhoneInput, {
 import "react-phone-number-input/style.css";
 
 const TERMS_VERSION = "2026-06-24";
+const CHECKOUT_DRAFT_KEY = "petvantagerx-pending-checkout";
+const PAYMENT_REQUIRED_MESSAGE = "A valid credit card is required to complete your PetVantageRx registration. Please enter a valid payment method to continue.";
 
 function generateSubscriptionId() {
   return `PRX${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -73,6 +75,9 @@ export default function Home() {
   const [returnUrl, setReturnUrl] = useState("");
   const [isEmbedded, setIsEmbedded] = useState(false);
   const [faqSource, setFaqSource] = useState("");
+  const [pendingRegistrationToken, setPendingRegistrationToken] = useState("");
+  const [checkoutCancelled, setCheckoutCancelled] = useState(false);
+  const [draftUnavailable, setDraftUnavailable] = useState(false);
 
   const [subscriptionOptions, setSubscriptionOptions] =
     useState<SubscriptionOption[]>([]);
@@ -84,6 +89,34 @@ export default function Home() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const isCancelledCheckout = params.get("payment") === "cancelled";
+    if (isCancelledCheckout) {
+      setCheckoutCancelled(true);
+      const returnedToken = params.get("registrationToken") || "";
+      const storedDraft = localStorage.getItem(CHECKOUT_DRAFT_KEY) ||
+        sessionStorage.getItem(CHECKOUT_DRAFT_KEY);
+      let restored = false;
+      if (storedDraft) {
+        try {
+          const draft = JSON.parse(storedDraft);
+          if (draft.registrationToken && draft.registrationToken === returnedToken &&
+              draft.addForm && Array.isArray(draft.pets)) {
+            setAddForm(draft.addForm);
+            setPets(draft.pets);
+            setTermsAccepted(Boolean(draft.termsAccepted));
+            setTermsScrolled(Boolean(draft.termsScrolled));
+            setPendingRegistrationToken(draft.registrationToken);
+            restored = true;
+          }
+        } catch (error) {
+          console.error("Unable to restore pending registration:", error);
+        }
+      }
+      setDraftUnavailable(!restored);
+      setIsError(false);
+      setResult("No request sent yet.");
+      // Keep the return token in the URL for support/recovery. Do not discard it.
+    }
 
     const incomingPartnerName = params.get("utm_source")?.trim() || "Direct Registration";
     const partnerName = params.get("utm_source")?.trim() || "";
@@ -92,7 +125,7 @@ export default function Home() {
     const campaign = params.get("utm_campaign")?.trim() || "";
     const lastName = params.get("utm_id")?.trim() || "";
 
-    loadSubscriptionPrices(incomingPartnerName);
+    loadSubscriptionPrices(incomingPartnerName, isCancelledCheckout);
 
     const incomingReturnUrl = params.get("returnUrl")?.trim() || "";
     setReturnUrl(incomingReturnUrl);
@@ -101,6 +134,8 @@ export default function Home() {
     setIsEmbedded(embed);
 
     console.log("Return URL received:", incomingReturnUrl);
+
+    if (isCancelledCheckout) return;
 
     if (!partnerName || !affinityGroup) {
       setAddForm((prev) => ({
@@ -141,7 +176,8 @@ export default function Home() {
   }
 
   async function loadSubscriptionPrices(
-    partnerName: string
+    partnerName: string,
+    preserveDraft = false
   ) {
     try {
       setLoadingPrices(true);
@@ -194,7 +230,7 @@ export default function Home() {
           option.subscriptionType.trim().toLowerCase() === "unlimited"
       );
 
-      if (unlimitedOption) {
+      if (unlimitedOption && !preserveDraft) {
         setAddForm((prev) => ({
           ...prev,
           subscriptionType: unlimitedOption.subscriptionType,
@@ -227,6 +263,11 @@ export default function Home() {
     setIsError(false);
     setIsSubmitting(true);
     setResult("Sending request...");
+
+    if (addForm.partnerName.trim() === "Direct Registration" && pendingRegistrationToken) {
+      await startCheckout(pendingRegistrationToken, addForm.subscriptionType, addForm.subscriptionPrice);
+      return;
+    }
 
     const acceptedAt = new Date().toISOString();
 
@@ -360,47 +401,7 @@ export default function Home() {
           return;
         }
 
-        const checkoutResponse = await fetch(
-          "/api/stripe/create-checkout-session",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              registrationToken,
-              subscriptionType: verifiedSubscriptionType,
-              subscriptionPrice: verifiedSubscriptionPrice,
-              memberEmail: addForm.memberEmail,
-              memberSubID: addForm.memberSubID,
-              partnerName: addForm.partnerName,
-              affinityGroup: addForm.affinityGroup,
-            }),
-          }
-        );
-
-        const checkoutData = await checkoutResponse.json();
-
-        if (
-          !checkoutResponse.ok ||
-          checkoutData?.success !== true ||
-          !checkoutData?.checkoutUrl
-        ) {
-          const checkoutError =
-            checkoutData?.message ||
-            checkoutData?.error ||
-            "Unable to start Stripe Checkout.";
-
-          setIsError(true);
-          setIsSubmitting(false);
-          setResult(checkoutError);
-          return;
-        }
-
-        window.top?.location.replace(
-          checkoutData.checkoutUrl
-        );
-
+        await startCheckout(registrationToken, verifiedSubscriptionType, verifiedSubscriptionPrice);
         return;
       }
 
@@ -469,6 +470,43 @@ export default function Home() {
           ? err.message
           : "An unknown registration error occurred."
       );
+    }
+  }
+
+
+  async function startCheckout(registrationToken: string, subscriptionType: string, subscriptionPrice: string) {
+    setIsSubmitting(true);
+    setIsError(false);
+    setResult("Preparing secure payment...");
+    try {
+      setPendingRegistrationToken(registrationToken);
+      const checkoutDraft = JSON.stringify({
+        registrationToken, addForm, pets, termsAccepted, termsScrolled,
+      });
+      localStorage.setItem(CHECKOUT_DRAFT_KEY, checkoutDraft);
+      sessionStorage.setItem(CHECKOUT_DRAFT_KEY, checkoutDraft);
+      const checkoutResponse = await fetch("/api/stripe/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          registrationToken,
+          subscriptionType,
+          subscriptionPrice,
+          memberEmail: addForm.memberEmail,
+          memberSubID: addForm.memberSubID,
+          partnerName: addForm.partnerName,
+          affinityGroup: addForm.affinityGroup,
+        }),
+      });
+      const checkoutData = await checkoutResponse.json();
+      if (!checkoutResponse.ok || checkoutData?.success !== true || !checkoutData?.checkoutUrl) {
+        throw new Error(checkoutData?.message || checkoutData?.error || "Unable to start Stripe Checkout.");
+      }
+      window.top?.location.replace(checkoutData.checkoutUrl);
+    } catch (error) {
+      setIsError(true);
+      setIsSubmitting(false);
+      setResult(error instanceof Error ? error.message : "Unable to start Stripe Checkout.");
     }
   }
 
@@ -624,7 +662,7 @@ export default function Home() {
 }
 
   const hidePartnerFields = addForm.partnerName === "Direct Registration";
-  const submitDisabled = isSubmitting || !termsAccepted;
+  const submitDisabled = isSubmitting || !termsAccepted || draftUnavailable;
   const isUnlimitedSubscription = addForm.subscriptionType.trim().toLowerCase() === "unlimited";
 
   const normalizedFaqSource = normalizePartnerName(faqSource);
@@ -643,6 +681,17 @@ export default function Home() {
         }}
       >
       <div style={shellStyle}>
+        {checkoutCancelled && (
+          <div role="alert" style={{
+            padding: "16px 20px", marginBottom: 20, borderRadius: 10,
+            border: "1px solid #f5c2c0", backgroundColor: "#fff5f5",
+            color: "#b42318", fontWeight: 700, lineHeight: 1.5,
+          }}>
+            {draftUnavailable
+              ? "Your registration is Pending, but we could not restore your saved information. Do not register again. Please contact PetVantageRx support to complete payment for the existing registration."
+              : PAYMENT_REQUIRED_MESSAGE}
+          </div>
+        )}
         {!isEmbedded && (
           <>
             <header style={headerStyle}>
@@ -1025,7 +1074,7 @@ export default function Home() {
               }}
               onClick={() => runAction("addMemberAndPet")}
             >
-              {isSubmitting ? "Submitting..." : "Add Member / Pet"}
+              {isSubmitting ? "Submitting..." : pendingRegistrationToken ? "Complete Payment" : "Add Member / Pet"}
             </button>
 
             <div style={responseFieldStyle}>
