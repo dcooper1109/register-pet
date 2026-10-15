@@ -315,9 +315,9 @@ export async function POST(request: Request) {
       },
 
       success_url:
-        `${dashboardUrl}/` +
+        `${dashboardUrl}/registration-complete` +
         "?stripe_session_id={CHECKOUT_SESSION_ID}",
-
+        
       cancel_url:
         `${baseUrl}/` +
         `?payment=cancelled` +
