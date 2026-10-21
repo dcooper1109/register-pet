@@ -77,6 +77,8 @@ export default function Home() {
   const [faqSource, setFaqSource] = useState("");
   const [pendingRegistrationToken, setPendingRegistrationToken] = useState("");
   const [checkoutCancelled, setCheckoutCancelled] = useState(false);
+  const [checkoutCompleting, setCheckoutCompleting] = useState(false);
+  const [checkoutCompletionError, setCheckoutCompletionError] = useState("");
   const [draftUnavailable, setDraftUnavailable] = useState(false);
 
   const [subscriptionOptions, setSubscriptionOptions] =
@@ -90,6 +92,13 @@ export default function Home() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isCancelledCheckout = params.get("payment") === "cancelled";
+    const checkoutSessionId = params.get("stripe_session_id") || params.get("session_id") || "";
+    if (checkoutSessionId) {
+      setCheckoutCompleting(true);
+      setResult("Payment received. Preparing your secure password setup...");
+      void completePaidRegistration(checkoutSessionId);
+      return;
+    }
     if (isCancelledCheckout) {
       setCheckoutCancelled(true);
       const returnedToken = params.get("registrationToken") || "";
@@ -163,6 +172,46 @@ export default function Home() {
       memberLast: cleanedLastName || prev.memberLast,
     }));
   }, []);
+
+  async function completePaidRegistration(checkoutSessionId: string) {
+    // The server validates Stripe payment, registration ownership, and the
+    // associated paymentRecordId before calling the createAuth0User flow.
+    const maxAttempts = 20;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await fetch("/api/stripe/complete-registration", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: JSON.stringify({ checkoutSessionId }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.message || "Unable to complete registration.");
+        }
+        if (data?.status === "ready" && typeof data?.passwordSetupUrl === "string") {
+          // Avoid storing or logging the one-time Auth0 password ticket.
+          window.location.replace(data.passwordSetupUrl);
+          return;
+        }
+        if (data?.status !== "pending") {
+          throw new Error("Unexpected registration completion response.");
+        }
+        setResult("Your payment is being confirmed. Preparing your account...");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to complete registration.";
+        setCheckoutCompletionError(message);
+        setIsError(true);
+        setCheckoutCompleting(false);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    setCheckoutCompletionError("Your payment may have succeeded, but account setup is taking longer than expected. Please contact PetVantageRx support. Do not submit another payment.");
+    setCheckoutCompleting(false);
+    setIsError(true);
+  }
 
   function getRequiredPetCount(
     subscriptionType: string,
@@ -681,7 +730,19 @@ export default function Home() {
         }}
       >
       <div style={shellStyle}>
-        {checkoutCancelled && (
+        {checkoutCompleting && (
+          <div role="status" style={{ ...cardStyle, textAlign: "center" }}>
+            <h2 style={sectionTitleStyle}>Completing Your Registration</h2>
+            <p>Your payment is being verified and your password setup is being prepared.</p>
+            <p>Please keep this page open. You will be redirected automatically.</p>
+          </div>
+        )}
+        {checkoutCompletionError && (
+          <div role="alert" style={{ ...cardStyle, color: "#b42318" }}>
+            {checkoutCompletionError}
+          </div>
+        )}
+        {!checkoutCompleting && !checkoutCompletionError && checkoutCancelled && (
           <div role="alert" style={{
             padding: "16px 20px", marginBottom: 20, borderRadius: 10,
             border: "1px solid #f5c2c0", backgroundColor: "#fff5f5",
@@ -712,7 +773,7 @@ export default function Home() {
           </>
         )}
 
-        {showFaqButton && (
+        {!checkoutCompleting && !checkoutCompletionError && showFaqButton && (
           <div style={faqButtonRowStyle}>
             <button
               type="button"
@@ -732,7 +793,7 @@ export default function Home() {
           </div>
         )}
 
-        <section style={cardStyle}>
+        {!checkoutCompleting && !checkoutCompletionError && <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>
             Register and Add Information
           </h2>
@@ -1093,7 +1154,7 @@ export default function Home() {
               />
             </div>
           </div>
-        </section>
+        </section>}
       </div>
     </main>
   );

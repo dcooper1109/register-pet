@@ -2,7 +2,6 @@ import Stripe from "stripe";
 import { NextResponse } from "next/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
 type CreatePaymentRecordInput = {
   registrationToken: string;
   memberSubID: string;
@@ -40,11 +39,9 @@ function convertDollarsToCents(price: number | string): number {
       : price;
 
   const numericPrice = Number(normalizedPrice);
-
   if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
     throw new Error("Invalid subscription price.");
   }
-
   return Math.round(numericPrice * 100);
 }
 
@@ -66,9 +63,7 @@ function extractResponseBody(data: any): any {
     data?.body ??
     data?.response ??
     data;
-
   responseBody = parsePossibleJson(responseBody);
-
   /*
    * Handles an additional APIM/Power Automate wrapper:
    * {
@@ -76,6 +71,7 @@ function extractResponseBody(data: any): any {
    *   body: { ... }
    * }
    */
+
   if (
     responseBody &&
     typeof responseBody === "object" &&
@@ -98,13 +94,13 @@ async function createPaymentRecord(
       "Payment-record API configuration is missing."
     );
   }
-
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Ocp-Apim-Subscription-Key": key,
     },
+
     body: JSON.stringify({
       registrationToken: input.registrationToken,
       memberSubID: input.memberSubID,
@@ -135,7 +131,6 @@ async function createPaymentRecord(
     responseBody?.registrationPaymentId ??
     responseBody?.rowId ??
     responseBody?.id;
-
   if (!paymentRecordId) {
     throw new Error(
       "The payment record was created, but its Dataverse row ID was not returned."
@@ -151,15 +146,14 @@ async function createPaymentRecord(
 async function updatePaymentRecord(
   input: UpdatePaymentRecordInput
 ): Promise<void> {
+
   const url = process.env.APIM_UPDATE_PAYMENT_RECORD_URL;
   const key = process.env.APIM_UPDATE_PAYMENT_RECORD_KEY;
-
   if (!url || !key) {
     throw new Error(
       "Payment-record update API configuration is missing."
     );
   }
-
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -205,7 +199,6 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-
     const {
       subscriptionType,
       subscriptionPrice,
@@ -258,11 +251,8 @@ export async function POST(request: Request) {
     paymentRecordId = paymentRecord.paymentRecordId;
     const baseUrl =
       process.env.NEXT_PUBLIC_BASE_URL ??
-      "https://register.petvantagerx.com";
 
-    const dashboardUrl =
-      process.env.DASHBOARD_BASE_URL ??
-      "https://dashboard.petvantagerx.com";
+      "https\://register.petvantagerx.com";
 
     const stripeProductId =
       process.env.STRIPE_SUBSCRIPTION_PRODUCT_ID;
@@ -315,9 +305,8 @@ export async function POST(request: Request) {
       },
 
       success_url:
-        `${dashboardUrl}/registration-complete` +
+        `${baseUrl}/` +
         "?stripe_session_id={CHECKOUT_SESSION_ID}",
-        
       cancel_url:
         `${baseUrl}/` +
         `?payment=cancelled` +
@@ -357,13 +346,25 @@ export async function POST(request: Request) {
       paymentTrackingStatus: "Checkout Created",
     });
 
-    return NextResponse.json({
+    const checkoutResult = NextResponse.json({
       success: true,
       checkoutUrl: session.url,
       sessionId: session.id,
       paymentRecordId,
     });
+
+    // Bind the returning browser to the same registration.
+    checkoutResult.cookies.set("pvr_checkout_binding", registrationToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60,
+    });
+    return checkoutResult;
+
   } catch (error) {
+
     console.error("Stripe Checkout error:", error);
 
     const errorMessage =
