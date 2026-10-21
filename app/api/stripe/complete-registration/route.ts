@@ -70,7 +70,10 @@ export async function POST(request: NextRequest) {
           ? { "Ocp-Apim-Subscription-Key": process.env.CREATE_AUTH0_USER_APIM_KEY }
           : {}),
       },
-      body: JSON.stringify({ paymentRecordId }),
+        body: JSON.stringify({
+        paymentRecordId,
+        userID: session.customer_details?.email ?? session.customer_email,
+        }),
       cache: "no-store",
     });
     if (!flowResponse.ok) {
