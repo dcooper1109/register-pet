@@ -630,7 +630,6 @@ export default function Home() {
         ["Member First", addForm.memberFirst],
         ["Member Last", addForm.memberLast],
         ["Member Email", addForm.memberEmail],
-        ["Mobile Phone", addForm.memberPhone],
       ];
 
       const missing = required
@@ -686,10 +685,10 @@ export default function Home() {
         return false;
       }
 
-      if (!isValidPhoneNumber(addForm.memberPhone)) {
+      if (addForm.memberPhone.trim() && !isValidPhoneNumber(addForm.memberPhone)) {
         setIsError(true);
         setResult(
-          "Please enter a valid mobile phone number, including the correct area code."
+          "Please enter a valid mobile phone number, including the correct area code, or leave it blank."
         );
         return false;
       }
@@ -901,8 +900,7 @@ export default function Home() {
             />
             <div>
               <label style={labelStyle}>
-                Mobile Phone
-                <span style={requiredStyle}> *</span>
+                Mobile Phone (Optional)
               </label>
 
               <PhoneInput

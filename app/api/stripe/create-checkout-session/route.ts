@@ -238,6 +238,8 @@ export async function POST(request: Request) {
     const verifiedSubscriptionPrice =
       (unitAmount / 100).toFixed(2);
 
+    const createPaymentStart = Date.now();
+    console.log("TIMING - Create Payment Record: started");
     const paymentRecord = await createPaymentRecord({
       registrationToken,
       memberSubID,
@@ -247,6 +249,8 @@ export async function POST(request: Request) {
       partnerName,
       affinityGroup: affinityGroup ?? "",
     });
+
+    console.log("TIMING - Create Payment Record:", Date.now() - createPaymentStart, "ms");
 
     paymentRecordId = paymentRecord.paymentRecordId;
     const baseUrl =
@@ -263,6 +267,8 @@ export async function POST(request: Request) {
       );
     }
 
+    const stripeCheckoutStart = Date.now();
+    console.log("TIMING - Stripe Checkout Session: started");
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer_email: memberEmail,
@@ -313,6 +319,8 @@ export async function POST(request: Request) {
         `&registrationToken=${encodeURIComponent(registrationToken)}`,
     });
 
+    console.log("TIMING - Stripe Checkout Session:", Date.now() - stripeCheckoutStart, "ms");
+
     if (!session.url) {
       throw new Error("Stripe did not return a Checkout URL.");
     }
@@ -332,6 +340,8 @@ export async function POST(request: Request) {
      * The webhook will later add the final paid/customer/
      * subscription/invoice values.
      */
+    const updatePaymentStart = Date.now();
+    console.log("TIMING - Update Payment Record: started");
     await updatePaymentRecord({
       paymentRecordId,
       registrationToken,
@@ -345,6 +355,8 @@ export async function POST(request: Request) {
       stripePaymentStatus: session.payment_status,
       paymentTrackingStatus: "Checkout Created",
     });
+
+    console.log("TIMING - Update Payment Record:", Date.now() - updatePaymentStart, "ms");
 
     const checkoutResult = NextResponse.json({
       success: true,
