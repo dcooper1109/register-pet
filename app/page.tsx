@@ -408,7 +408,7 @@ export default function Home() {
         responseBody?.success === true
       ) {
       if (addForm.partnerName.trim() === "Direct Registration") {
-        setResult("Registration saved. Preparing secure payment...");
+        setResult("Registration saved. Creating your secure checkout. This may take a few seconds...");
 
         const registrationToken =
           String(responseBody?.registrationToken ?? "").trim();
@@ -526,7 +526,7 @@ export default function Home() {
   async function startCheckout(registrationToken: string, subscriptionType: string, subscriptionPrice: string) {
     setIsSubmitting(true);
     setIsError(false);
-    setResult("Preparing secure payment...");
+    setResult("Creating your secure checkout. This may take a few seconds...");
     try {
       setPendingRegistrationToken(registrationToken);
       const checkoutDraft = JSON.stringify({
