@@ -27,9 +27,10 @@ export async function POST(request: NextRequest) {
     return json({ message: "Invalid Checkout Session ID." }, 400);
   }
 
-  // This HttpOnly cookie MUST be set by create-checkout-session before
-  // redirecting to Stripe. It binds this browser to the registration.
-  const boundToken = request.cookies.get("pvr_checkout_binding")?.value;
+  // Each Checkout Session has its own HttpOnly cookie. Starting another
+  // checkout will not overwrite the binding for an earlier checkout.
+  const cookieName = `pvr_checkout_${checkoutSessionId}`;
+  const boundToken = request.cookies.get(cookieName)?.value;
   if (!boundToken) {
     return json({ message: "Registration session expired. Please contact support; do not pay again." }, 403);
   }
@@ -70,10 +71,10 @@ export async function POST(request: NextRequest) {
           ? { "Ocp-Apim-Subscription-Key": process.env.CREATE_AUTH0_USER_APIM_KEY }
           : {}),
       },
-        body: JSON.stringify({
+      body: JSON.stringify({
         paymentRecordId,
         userID: session.customer_details?.email ?? session.customer_email,
-        }),
+      }),
       cache: "no-store",
     });
     if (!flowResponse.ok) {

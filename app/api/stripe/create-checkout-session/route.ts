@@ -366,7 +366,7 @@ export async function POST(request: Request) {
     });
 
     // Bind the returning browser to the same registration.
-    checkoutResult.cookies.set("pvr_checkout_binding", registrationToken, {
+    checkoutResult.cookies.set(`pvr_checkout_${session.id}`, registrationToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
