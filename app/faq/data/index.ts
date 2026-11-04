@@ -3,10 +3,12 @@ import { fairshareFaqs } from "./fairshare";
 import { testclientFaqs } from "./testclient";
 import { metlifeFaqs } from "./metlife";
 import { teletailsFaqs } from "./teletails";
+import { directregistrationFaqs } from "./directregistration";
 
 export const partnerFaqs: Record<string, FaqItem[]> = {
   fairshare: fairshareFaqs,
   testclient: testclientFaqs,
   metlife: metlifeFaqs,
   teletails: teletailsFaqs,
+  directregistration: directregistrationFaqs,
 };

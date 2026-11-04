@@ -229,6 +229,15 @@ export async function POST(request: Request) {
       );
     }
 
+    // Fixed development prices for direct registrations. Never trust the browser amount.
+    // Do not apply these prices to partner registrations.
+    if (partnerName === "Direct Registration" && process.env.VERCEL_ENV !== "production") {
+      const fixed: Record<string, number> = {"One Pet":199,"Two Pets":299,"Three or More Pets":399};
+      if (!(subscriptionType in fixed) || convertDollarsToCents(subscriptionPrice) !== fixed[subscriptionType]) {
+        return NextResponse.json({success:false,message:"Direct Registration price does not match development pricing."},{status:400});
+      }
+    }
+
     const verifiedSubscriptionType =
       String(subscriptionType).trim();
 
@@ -266,6 +275,18 @@ export async function POST(request: Request) {
         "STRIPE_SUBSCRIPTION_PRODUCT_ID is not configured."
       );
     }
+
+    // Only configured Marketing origin (or local development) can receive a cancel redirect.
+    let marketingCancelUrl = "";
+    try {
+      const candidate = new URL(String(body.returnUrl || ""));
+      const allowed = [process.env.MARKETING_SITE_ORIGIN, ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:8080", "http://127.0.0.1:8080"])].filter(Boolean);
+      if (allowed.includes(candidate.origin)) {
+        candidate.searchParams.set("payment","cancelled");
+        candidate.hash = "signup";
+        marketingCancelUrl = candidate.toString();
+      }
+    } catch {}
 
     const stripeCheckoutStart = Date.now();
     console.log("TIMING - Stripe Checkout Session: started");
@@ -313,7 +334,7 @@ export async function POST(request: Request) {
       success_url:
         `${baseUrl}/` +
         "?stripe_session_id={CHECKOUT_SESSION_ID}",
-      cancel_url:
+      cancel_url: marketingCancelUrl ||
         `${baseUrl}/` +
         `?payment=cancelled` +
         `&registrationToken=${encodeURIComponent(registrationToken)}`,

@@ -1,26 +1,62 @@
+@import url("https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Nunito:wght@400;600;700;800&display=swap");
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+:root { --background: #f5fafa; --foreground: #1b2a41; }
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: "Lato", Arial, sans-serif;
   --font-mono: var(--font-geist-mono);
 }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--background); color: var(--foreground); font-family: "Lato", Arial, sans-serif; }
+button, input, select, textarea { font: inherit; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+.pvr-site-header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:12px 24px; background:#fdfdfc; border:1px solid #e3ebeb; border-radius:14px; margin-bottom:22px; }
+.pvr-site-header a { display:inline-flex; align-items:center; }
+.pvr-header-label { font-family:"Nunito",sans-serif; font-size:13px; font-weight:800; color:#57626f; }
+.pvr-registration-layout { display:grid; grid-template-columns:minmax(300px, .83fr) minmax(0, 1.17fr); align-items:stretch; border:1px solid #e3ebeb; border-radius:20px; overflow:hidden; box-shadow:0 16px 40px rgba(27,42,65,.08); background:#fdfdfc; }
+.pvr-brand-panel { position:relative; isolation:isolate; overflow:hidden; background:#1b2a41; color:#fdfdfc; padding:clamp(28px,4vw,48px); }
+.pvr-brand-panel::before { content:""; position:absolute; z-index:-1; right:-120px; bottom:-130px; width:380px; height:380px; border-radius:50%; background:rgba(61,122,74,.27); }
+.pvr-brand-content { position:sticky; top:24px; display:flex; flex-direction:column; align-items:flex-start; gap:20px; }
+.pvr-eyebrow { display:flex; align-items:center; gap:10px; color:#dba277; font:800 12px "Nunito",sans-serif; letter-spacing:.14em; }
+.pvr-eyebrow-mark { width:4px; height:17px; border-radius:3px; background:#c46e3a; }
+.pvr-brand-panel h1 { margin:0; font:800 clamp(29px,3.2vw,39px)/1.14 "Nunito",sans-serif; letter-spacing:-.03em; }
+.pvr-brand-panel p { margin:0; font-size:16px; line-height:1.65; color:rgba(253,253,252,.86); }
+.pvr-benefits { display:grid; gap:13px; margin:5px 0; font-size:15px; line-height:1.5; }
+.pvr-benefits div { display:flex; gap:11px; align-items:flex-start; }
+.pvr-benefits span { flex:none; width:22px; height:22px; display:grid; place-items:center; border-radius:50%; background:#3d7a4a; font-weight:700; }
+.pvr-virtual-card { width:100%; max-width:340px; aspect-ratio:1.586; border-radius:14px; background:#233552; border:1px solid rgba(253,253,252,.14); border-left:6px solid #c46e3a; padding:20px; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 10px 25px rgba(0,0,0,.14); }
+.pvr-card-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+.pvr-card-top strong { font:800 21px "Nunito",sans-serif; }
+.pvr-card-top span { font:800 9px/1.4 "Nunito",sans-serif; letter-spacing:.12em; text-align:right; color:#dba277; }
+.pvr-card-bottom { display:grid; gap:6px; }
+.pvr-card-bottom strong { font:800 17px "Nunito",sans-serif; }
+.pvr-card-bottom span { font-size:12px; letter-spacing:.08em; color:rgba(253,253,252,.8); }
+.pvr-brand-panel .pvr-card-note { font-size:12px; opacity:.8; }
+.pvr-form-panel { min-width:0; padding:clamp(24px,3.5vw,44px); }
+.pvr-auth-tabs { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px; background:#f0f5f5; border-radius:11px; margin-bottom:28px; font:800 15px "Nunito",sans-serif; text-align:center; }
+.pvr-auth-tabs a, .pvr-auth-tabs span { display:block; padding:12px; border-radius:8px; text-decoration:none; }
+.pvr-auth-tabs a { color:#57626f; }
+.pvr-auth-tabs a:hover { color:#1b2a41; background:#e3ebeb; }
+.pvr-auth-tabs span { color:#1b2a41; background:#fdfdfc; box-shadow:0 1px 5px rgba(27,42,65,.1); }
+.pvr-form-section { min-width:0; }
+.pvr-form-heading { font:800 clamp(24px,2.6vw,30px)/1.2 "Nunito",sans-serif; letter-spacing:-.025em; margin:0 0 7px; }
+.pvr-form-intro { margin:0 0 24px; color:#57626f; line-height:1.55; }
+.pvr-registration-embedded { display:block; border:0; box-shadow:none; }
+.pvr-registration-embedded .pvr-form-panel { padding:12px; }
+@media(max-width:850px) { .pvr-registration-layout { grid-template-columns:1fr; } .pvr-brand-content { position:relative; top:auto; } .pvr-brand-panel { padding:30px; } .pvr-virtual-card { max-width:310px; } }
+@media(max-width:520px) { .pvr-site-header { padding:12px 14px; } .pvr-header-label { font-size:11px; text-align:right; } .pvr-form-panel { padding:22px 18px; } .pvr-brand-panel { padding:26px 22px; } }
+
+.pet-fields-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 3fr) minmax(0, 3fr);
+  gap: 12px;
+  align-items: start;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@media (max-width: 600px) {
+  .pet-fields-grid {
+    grid-template-columns: 1fr;
+  }
 }

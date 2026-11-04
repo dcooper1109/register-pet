@@ -14,6 +14,12 @@ import "react-phone-number-input/style.css";
 const TERMS_VERSION = "2026-06-24";
 const CHECKOUT_DRAFT_KEY = "petvantagerx-pending-checkout";
 const PAYMENT_REQUIRED_MESSAGE = "A valid credit card is required to complete your PetVantageRx registration. Please enter a valid payment method to continue.";
+// Temporary Marketing development prices. Partner pricing still comes from /api/getprice.
+const MARKETING_DEV_PRICES: SubscriptionOption[] = [
+  { subscriptionType: "One Pet", subscriptionPrice: 1.99 },
+  { subscriptionType: "Two Pets", subscriptionPrice: 2.99 },
+  { subscriptionType: "Three or More Pets", subscriptionPrice: 3.99 },
+];
 
 function generateSubscriptionId() {
   return `PRX${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -91,6 +97,16 @@ export default function Home() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get("marketing") === "1") {
+      void fetch("/api/marketing-handoff", {cache:"no-store"}).then(r=>r.json()).then(({draft})=>{
+        if (!draft) return;
+        const type = draft.plan === "one" ? "One Pet" : draft.plan === "two" ? "Two Pets" : "Three or More Pets";
+        setAddForm(prev=>({...prev,partnerName:"Direct Registration",affinityGroup:"D2C",memberSubID:prev.memberSubID || generateSubscriptionId(),subscriptionType:type,memberFirst:String(draft.memberFirst),memberLast:String(draft.memberLast),memberEmail:String(draft.memberEmail),memberPhone:String(draft.memberPhone || "")}));
+        setPets(draft.pets.map((pet:Pet)=>({petName:String(pet.petName || ""),petSpecies:String(pet.petSpecies || ""),petBreed:String(pet.petBreed || ""),petSex:String(pet.petSex || "")})));
+        setResult("Review the full Terms and Conditions below, accept them, then continue to secure checkout.");
+      }).catch(()=>setResult("Unable to restore the Marketing registration. Please enter your details below."));
+    }
+
     const isCancelledCheckout = params.get("payment") === "cancelled";
     const checkoutSessionId = params.get("stripe_session_id") || params.get("session_id") || "";
     if (checkoutSessionId) {
@@ -134,7 +150,15 @@ export default function Home() {
     const campaign = params.get("utm_campaign")?.trim() || "";
     const lastName = params.get("utm_id")?.trim() || "";
 
-    loadSubscriptionPrices(incomingPartnerName, isCancelledCheckout);
+    if (params.get("marketing") === "1") {
+      // The Marketing Join page has fixed development prices. Do not call
+      // the partner-pricing API for this registration path.
+      setSubscriptionOptions(MARKETING_DEV_PRICES);
+      setLoadingPrices(false);
+      setPriceError("");
+    } else {
+      loadSubscriptionPrices(incomingPartnerName, isCancelledCheckout);
+    }
 
     const incomingReturnUrl = params.get("returnUrl")?.trim() || "";
     setReturnUrl(incomingReturnUrl);
@@ -273,6 +297,13 @@ export default function Home() {
           }));
 
       setSubscriptionOptions(options);
+      if (new URLSearchParams(window.location.search).get("marketing") === "1") {
+        setAddForm(prev=>{
+          const matching=options.find(o=>o.subscriptionType.toLowerCase()===prev.subscriptionType.toLowerCase());
+          return matching ? {...prev,subscriptionPrice:String(matching.subscriptionPrice)} : prev;
+        });
+      }
+
 
       const unlimitedOption = options.find(
         (option) =>
@@ -305,6 +336,15 @@ export default function Home() {
       setLoadingPrices(false);
     }
   }
+
+  useEffect(()=>{
+    if (new URLSearchParams(window.location.search).get("marketing") !== "1") return;
+    if (!subscriptionOptions.length) return;
+    setAddForm(prev=>{
+      const option=subscriptionOptions.find(o=>o.subscriptionType.toLowerCase()===prev.subscriptionType.toLowerCase());
+      return option && prev.subscriptionPrice!==String(option.subscriptionPrice) ? {...prev,subscriptionPrice:String(option.subscriptionPrice)} : prev;
+    });
+  },[subscriptionOptions,addForm.subscriptionType]);
 
   async function runAction(action: string) {
     if (!validate(action)) return;
@@ -545,6 +585,7 @@ export default function Home() {
           memberSubID: addForm.memberSubID,
           partnerName: addForm.partnerName,
           affinityGroup: addForm.affinityGroup,
+          returnUrl: new URLSearchParams(window.location.search).get("returnUrl") || "",
         }),
       });
       const checkoutData = await checkoutResponse.json();
@@ -753,25 +794,48 @@ export default function Home() {
           </div>
         )}
         {!isEmbedded && (
-          <>
-            <header style={headerStyle}>
-              <Image
-                src="/petvantagerx logo on white.png"
-                alt="PetVantageRx"
-                width={350}
-                height={130}
-                priority
-                style={{ height: "auto" }}
-              />
-
-              <h1 style={titleStyle}>Pet Registration</h1>
-            </header>
-
-            <div style={accentLineStyle} />
-
-          </>
+          <header className="pvr-site-header">
+            <a href="https://www.petvantagerx.com" aria-label="PetVantageRx home">
+              <Image src="/petvantagerx logo on white.png" alt="PetVantageRx" width={184} height={68} priority style={{ width: 184, height: "auto" }} />
+            </a>
+            <span className="pvr-header-label">Secure membership registration</span>
+          </header>
         )}
 
+        {!checkoutCompleting && !checkoutCompletionError && (
+          <div className={`pvr-registration-layout${isEmbedded ? " pvr-registration-embedded" : ""}`}>
+            {!isEmbedded && (
+              <aside className="pvr-brand-panel" aria-label="PetVantageRx membership benefits">
+                <div className="pvr-brand-content">
+                  <div className="pvr-eyebrow"><span className="pvr-eyebrow-mark" /> JOIN PETVANTAGERX</div>
+                  <h1>Exclusive savings for your pets start here.</h1>
+                  <p>One easy membership gives you access to exclusive prices on pet prescriptions, wellness products, and supplies.</p>
+                  <div className="pvr-benefits">
+                    <div><span aria-hidden="true">✓</span> Member-only pharmacy pricing</div>
+                    <div><span aria-hidden="true">✓</span> Savings on prescriptions and supplies</div>
+                    <div><span aria-hidden="true">✓</span> Convenient online access</div>
+                  </div>
+                  <div className="pvr-virtual-card" aria-label="Example virtual savings card">
+                    <div className="pvr-card-top">
+                      <strong>PetVantageRx</strong>
+                      <span>VIRTUAL SAVINGS<br />CARD</span>
+                    </div>
+                    <div className="pvr-card-bottom">
+                      <strong>Your pet&apos;s name</strong>
+                      <span>PVRX-00 0000</span>
+                    </div>
+                  </div>
+                  <p className="pvr-card-note">Illustrative savings card — your membership details are provided after registration.</p>
+                </div>
+              </aside>
+            )}
+            <div className="pvr-form-panel">
+              {!isEmbedded && (
+                <div className="pvr-auth-tabs" aria-label="Membership options">
+                  <a href="https://dashboard.petvantagerx.com/auth/login">Log in</a>
+                  <span aria-current="page">Join</span>
+                </div>
+              )}
         {!checkoutCompleting && !checkoutCompletionError && showFaqButton && (
           <div style={faqButtonRowStyle}>
             <button
@@ -792,22 +856,13 @@ export default function Home() {
           </div>
         )}
 
-        {!checkoutCompleting && !checkoutCompletionError && <section style={cardStyle}>
-          <h2 style={sectionTitleStyle}>
-            Register and Add Information
-          </h2>
+        {!checkoutCompleting && !checkoutCompletionError && <section className="pvr-form-section">
+          <h2 className="pvr-form-heading">Create your membership</h2>
+          <p className="pvr-form-intro">Choose your plan and tell us about you and your pets.</p>
 
           <h3 style={subSectionTitleStyle}>Enrollee Information</h3>
 
           <div style={gridStyle}>
-            <Input
-              required
-              label="Subscription ID"
-              value={addForm.memberSubID}
-              onChange={(v) => updateAddForm("memberSubID", v)}
-              readOnly
-            />
-
             {!hidePartnerFields && (
               <>
                 <Input
@@ -940,7 +995,7 @@ export default function Home() {
                 )}
               </div>
 
-              <div style={gridStyle}>
+              <div className="pet-fields-grid">
                 <Input
                   required
                   label="Pet Name"
@@ -1133,11 +1188,11 @@ export default function Home() {
               }}
               onClick={() => runAction("addMemberAndPet")}
             >
-              {isSubmitting ? "Submitting..." : pendingRegistrationToken ? "Complete Payment" : "Add Member / Pet"}
+              {isSubmitting ? "Submitting..." : pendingRegistrationToken ? "Complete Payment" : "Continue to Secure Checkout"}
             </button>
 
             <div style={responseFieldStyle}>
-              <label style={labelStyle}>Submission Response</label>
+              <label style={labelStyle}>{isError ? "Registration issue" : "Registration status"}</label>
 
               <textarea
                 value={result}
@@ -1153,6 +1208,9 @@ export default function Home() {
             </div>
           </div>
         </section>}
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
@@ -1197,18 +1255,18 @@ function Input({
 
 const navy = "#1B2A41";
 const emerald = "#3d7a4a";
-const softBg = "#f7faf9";
+const softBg = "#f5fafa";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
   background: softBg,
-  fontFamily: "Arial, sans-serif",
+  fontFamily: "Lato, Arial, sans-serif",
   padding: "32px 16px",
   color: navy,
 };
 
 const shellStyle: React.CSSProperties = {
-  maxWidth: 850,
+  maxWidth: 1240,
   margin: "0 auto",
 };
 
@@ -1228,7 +1286,7 @@ const titleStyle: React.CSSProperties = {
   marginTop: 10,
   marginBottom: 4,
   fontSize: 34,
-  fontFamily: "Georgia, serif",
+  fontFamily: "Nunito, Arial, sans-serif",
   color: navy,
 };
 
@@ -1253,12 +1311,12 @@ const sectionTitleStyle: React.CSSProperties = {
   margin: "0 0 18px",
   fontSize: 22,
   color: navy,
-  fontFamily: "Georgia, serif",
+  fontFamily: "Nunito, Arial, sans-serif",
 };
 
 const gridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 210px), 1fr))",
   gap: "14px",
 };
 
@@ -1276,10 +1334,10 @@ const requiredStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 42,
-  padding: "8px 11px",
+  height: 46,
+  padding: "10px 13px",
   fontSize: 15,
-  border: "1px solid #9ca3af",
+  border: "1px solid #d3dede",
   borderRadius: 8,
   backgroundColor: "#ffffff",
   color: "#111827",
@@ -1330,7 +1388,7 @@ const removePetButtonStyle: React.CSSProperties = {
 const subSectionTitleStyle: React.CSSProperties = {
   margin: "18px 0 14px",
   fontSize: 18,
-  fontFamily: "Georgia, serif",
+  fontFamily: "Nunito, Arial, sans-serif",
   color: navy,
 };
 
@@ -1339,7 +1397,7 @@ const petCardStyle: React.CSSProperties = {
   borderRadius: 14,
   padding: 16,
   marginBottom: 16,
-  backgroundColor: "#fbfdfc",
+  backgroundColor: "#fbfdfd",
 };
 
 const petHeaderStyle: React.CSSProperties = {
@@ -1353,7 +1411,7 @@ const petHeaderStyle: React.CSSProperties = {
 const petTitleStyle: React.CSSProperties = {
   margin: 0,
   fontSize: 16,
-  fontFamily: "Georgia, serif",
+  fontFamily: "Nunito, Arial, sans-serif",
   color: navy,
 };
 
@@ -1373,10 +1431,10 @@ const helperTextStyle: React.CSSProperties = {
 const termsBoxStyle: React.CSSProperties = {
   height: 330,
   overflowY: "auto",
-  border: "1px solid #9ca3af",
+  border: "1px solid #d3dede",
   borderRadius: 10,
   padding: "18px 20px",
-  backgroundColor: "#fbfdfc",
+  backgroundColor: "#fbfdfd",
   fontSize: 14,
   lineHeight: 1.6,
   color: "#263548",
@@ -1385,7 +1443,7 @@ const termsBoxStyle: React.CSSProperties = {
 const termsHeadingStyle: React.CSSProperties = {
   margin: "0 0 4px",
   fontSize: 19,
-  fontFamily: "Georgia, serif",
+  fontFamily: "Nunito, Arial, sans-serif",
   color: navy,
 };
 
@@ -1449,7 +1507,7 @@ const responseTextAreaStyle: React.CSSProperties = {
   minHeight: 50,
   padding: "11px",
   fontSize: 15,
-  fontFamily: "Arial, sans-serif",
+  fontFamily: "Lato, Arial, sans-serif",
   fontWeight: 700,
   lineHeight: "24px",
   resize: "none",
@@ -1500,7 +1558,7 @@ const phoneInputContainerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
     padding: "0 11px",
-  border: "1px solid #9ca3af",
+  border: "1px solid #d3dede",
   borderRadius: 8,
   backgroundColor: "#ffffff",
   boxSizing: "border-box",
