@@ -40,6 +40,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Google registration code expired or was already used." }, { status: 410 });
     }
     if (!equalHex(browserState, pending.state)) {
+      console.error("[Google Registration State Mismatch]", {
+        browserStatePresent: Boolean(browserState),
+        redisStatePresent: Boolean(pending.state),
+        browserStateLength: browserState.length,
+        redisStateLength: pending.state?.length,
+        cookieNames: request.cookies.getAll().map(c => c.name),
+      });
       return NextResponse.json({ message: "Google registration browser verification failed." }, { status: 403 });
     }
 
