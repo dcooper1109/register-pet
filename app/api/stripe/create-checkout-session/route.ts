@@ -275,7 +275,7 @@ export async function POST(request: Request) {
     // Fixed development prices for direct registrations. Never trust the browser amount.
     // Do not apply these prices to partner registrations.
     if (partnerName === "Direct Registration" && process.env.VERCEL_ENV !== "production") {
-      const fixed: Record<string, number> = {"One Pet":199,"Two Pets":299,"Three or More Pets":399};
+      const fixed: Record<string, number> = {"One Pet":499,"Two Pets":799,"Three or More Pets":1199};
       if (!(subscriptionType in fixed) || convertDollarsToCents(subscriptionPrice) !== fixed[subscriptionType]) {
         return NextResponse.json({success:false,message:"Direct Registration price does not match development pricing."},{status:400});
       }
