@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type GoogleCheckout = {
+  oauthSub: string;
+  email: string;
+  authenticationMethod: "google";
+  registrationToken: string;
+  paymentRecordId: string;
+};
 
 function json(body: object, status = 200) {
   return NextResponse.json(body, {
@@ -27,8 +36,6 @@ export async function POST(request: NextRequest) {
     return json({ message: "Invalid Checkout Session ID." }, 400);
   }
 
-  // Each Checkout Session has its own HttpOnly cookie. Starting another
-  // checkout will not overwrite the binding for an earlier checkout.
   const cookieName = `pvr_checkout_${checkoutSessionId}`;
   const boundToken = request.cookies.get(cookieName)?.value;
   if (!boundToken) {
@@ -60,9 +67,27 @@ export async function POST(request: NextRequest) {
       return json({ message: "Checkout Session is missing its payment record ID." }, 502);
     }
 
-    // createAuth0User MUST independently validate the payment record's
-    // invoice.paid confirmation, ensure idempotent user creation, and
-    // authorize the registration before issuing a password ticket.
+    // Only an identity stored by the server during checkout may select Google.
+    const google = await Redis.fromEnv().get<GoogleCheckout>(`pvr:google-checkout:${checkoutSessionId}`);
+    if (session?.metadata?.authenticationMethod === "google" && !google) {
+      return json({ message: "Google checkout identity expired. Please contact support; do not pay again." }, 403);
+    }
+    if (google && session?.metadata?.authenticationMethod !== "google") {
+      return json({ message: "Google checkout method mismatch." }, 403);
+    }
+    if (google && (
+      google.authenticationMethod !== "google" ||
+      !google.oauthSub?.startsWith("google-oauth2|") ||
+      google.registrationToken !== registrationToken ||
+      google.paymentRecordId !== paymentRecordId ||
+      !google.email ||
+      google.email.toLowerCase() !== String(session.customer_details?.email ?? session.customer_email ?? "").toLowerCase()
+    )) {
+      return json({ message: "Google checkout identity verification failed." }, 403);
+    }
+
+    // The Power Automate flow independently verifies invoice.paid and updates
+    // Dataverse. For Google, it must be idempotent and must not create a DB user.
     const flowResponse = await fetch(flowUrl, {
       method: "POST",
       headers: {
@@ -73,7 +98,8 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         paymentRecordId,
-        userID: session.customer_details?.email ?? session.customer_email,
+        userID: google?.email ?? (session.customer_details?.email ?? session.customer_email),
+        ...(google ? { authenticationMethod: "google", oauthSub: google.oauthSub } : {}),
       }),
       cache: "no-store",
     });
@@ -85,6 +111,26 @@ export async function POST(request: NextRequest) {
       result = typeof result.body === "string" ? JSON.parse(result.body) : result.body;
     }
     if (result?.status === "pending") return json({ status: "pending" });
+    if (result?.success === false || result?.status === "error" || result?.status === "failed") {
+      return json({ message: "Account setup did not complete. Please contact support; do not pay again." }, 502);
+    }
+
+    if (google) {
+      // The Google branch must return an explicit success signal from the flow.
+      // An HTTP 200 alone is not proof that the Dataverse update succeeded.
+      if (result?.status !== "ready" && result?.success !== true) {
+        return json({ message: "Google account setup did not confirm completion." }, 502);
+      }
+      const dashboardBase = process.env.GOOGLE_DASHBOARD_BASE_URL;
+      if (!dashboardBase) return json({ message: "Google dashboard URL is not configured." }, 500);
+      const dashboard = new URL(dashboardBase);
+      if (dashboard.protocol !== "https:" || dashboard.username || dashboard.password ||
+          dashboard.pathname !== "/" || dashboard.search || dashboard.hash) {
+        return json({ message: "Invalid Google dashboard URL configuration." }, 500);
+      }
+      return json({ status: "ready", redirectUrl: dashboard.origin + "/" });
+    }
+
     const passwordSetupUrl = result?.passwordSetupUrl;
     if (typeof passwordSetupUrl !== "string") {
       return json({ message: "Auth0 setup did not return a password URL." }, 502);
@@ -93,13 +139,13 @@ export async function POST(request: NextRequest) {
     if (parsed.protocol !== "https:" || !parsed.hostname) {
       return json({ message: "Invalid Auth0 password setup URL." }, 502);
     }
-    // Configure the exact expected Auth0 tenant/custom domain in Vercel.
     const allowedHost = process.env.AUTH0_PASSWORD_SETUP_HOST;
     if (!allowedHost || parsed.hostname !== allowedHost) {
       return json({ message: "Untrusted Auth0 password setup domain." }, 502);
     }
     return json({ status: "ready", passwordSetupUrl });
-  } catch {
+  } catch (error) {
+    console.error("Registration completion failed:", error);
     return json({ message: "Unable to finish registration. Please contact support; do not pay again." }, 502);
   }
 }

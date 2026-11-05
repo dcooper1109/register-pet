@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -190,6 +191,12 @@ async function updatePaymentRecord(
   }
 }
 
+type VerifiedGoogleIdentity = {
+  oauthSub: string;
+  email: string;
+  authenticationMethod: "google";
+};
+
 export async function POST(request: Request) {
   let paymentRecordId = "";
   let registrationToken = "";
@@ -199,6 +206,36 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    // Only the server-side, HttpOnly Redis identity can select Google registration.
+    const cookieHeader = request.headers.get("cookie") || "";
+    const googleCookie = cookieHeader.split(";").map(x => x.trim())
+      .find(x => x.startsWith("pvr_google_registration="))?.slice("pvr_google_registration=".length) || "";
+    let googleIdentity: VerifiedGoogleIdentity | null = null;
+    if (googleCookie && body?.authenticationMethod === "google") {
+      if (!/^[a-f0-9]{64}$/.test(googleCookie)) {
+        return NextResponse.json({ success: false, message: "Invalid Google registration session." }, { status: 403 });
+      }
+      const stored = await Redis.fromEnv().get<VerifiedGoogleIdentity>(`pvr:google-registration:${googleCookie}`);
+      if (!stored || stored.authenticationMethod !== "google" ||
+          !stored.oauthSub?.startsWith("google-oauth2|") || !stored.email) {
+        return NextResponse.json({ success: false, message: "Google registration expired. Please sign in with Google again." }, { status: 403 });
+      }
+      googleIdentity = stored;
+    }
+
+    const authenticationMethod = body?.authenticationMethod;
+    if (authenticationMethod !== "google" && authenticationMethod !== "password") {
+      return NextResponse.json(
+        { success: false, message: "Invalid registration authentication method." },
+        { status: 400 }
+      );
+    }
+    if (authenticationMethod === "google" && !googleIdentity) {
+      return NextResponse.json(
+        { success: false, message: "Google verification expired. Please sign in with Google again." },
+        { status: 403 }
+      );
+    }
     const {
       subscriptionType,
       subscriptionPrice,
@@ -209,6 +246,12 @@ export async function POST(request: Request) {
     partnerName = String(body.partnerName ?? "").trim();
     memberSubID = String(body.memberSubID ?? "").trim();
     memberEmail = String(body.memberEmail ?? "").trim();
+    if (googleIdentity && (
+      googleIdentity.email.trim().toLowerCase() !== memberEmail.toLowerCase() ||
+      partnerName !== "Direct Registration"
+    )) {
+      return NextResponse.json({ success: false, message: "Google account does not match this registration." }, { status: 403 });
+    }
 
       if (
         !registrationToken ||
@@ -312,6 +355,7 @@ export async function POST(request: Request) {
       metadata: {
         registrationToken,
         paymentRecordId,
+        ...(googleIdentity ? { authenticationMethod: "google" } : {}),
         partnerName,
         memberSubID,
         memberEmail,
@@ -323,6 +367,7 @@ export async function POST(request: Request) {
         metadata: {
           registrationToken,
           paymentRecordId,
+          ...(googleIdentity ? { authenticationMethod: "google" } : {}),
           partnerName,
           memberSubID,
           memberEmail,
@@ -344,6 +389,19 @@ export async function POST(request: Request) {
 
     if (!session.url) {
       throw new Error("Stripe did not return a Checkout URL.");
+    }
+
+    // Persist the identity with this specific checkout, not with a browser-provided flag.
+    // It survives the Stripe redirect and expiration of the initial Google cookie.
+    if (googleIdentity) {
+      const result = await Redis.fromEnv().set(`pvr:google-checkout:${session.id}`, {
+        oauthSub: googleIdentity.oauthSub,
+        email: googleIdentity.email.trim().toLowerCase(),
+        authenticationMethod: "google",
+        registrationToken,
+        paymentRecordId,
+      }, { ex: 60 * 60 * 24 * 7, nx: true });
+      if (result !== "OK") throw new Error("Unable to bind Google identity to checkout.");
     }
 
     const stripeCustomerID =
@@ -392,7 +450,7 @@ export async function POST(request: Request) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60,
+      maxAge: 60 * 60 * 24,
     });
     return checkoutResult;
 

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { partnerFaqs } from "./faq/data";
 
 import PhoneInput, {
@@ -86,6 +86,10 @@ export default function Home() {
   const [checkoutCompleting, setCheckoutCompleting] = useState(false);
   const [checkoutCompletionError, setCheckoutCompletionError] = useState("");
   const [draftUnavailable, setDraftUnavailable] = useState(false);
+  const [googleHandoffPending, setGoogleHandoffPending] = useState(false);
+  const [googleVerifiedEmail, setGoogleVerifiedEmail] = useState("");
+  const [googleHandoffError, setGoogleHandoffError] = useState("");
+  const googleRedeemStarted = useRef(false);
 
   const [subscriptionOptions, setSubscriptionOptions] =
     useState<SubscriptionOption[]>([]);
@@ -94,6 +98,47 @@ export default function Home() {
     useState(true);
 
   const [priceError, setPriceError] = useState("");
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("google_handoff");
+    if (!code || googleRedeemStarted.current) return;
+    googleRedeemStarted.current = true;
+    // Remove the one-time code from history and subsequent referrers immediately.
+    url.searchParams.delete("google_handoff");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    setGoogleHandoffPending(true);
+    setGoogleHandoffError("");
+    void (async () => {
+      try {
+        const response = await fetch("/api/google-registration/redeem", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        const data = await response.json();
+        if (!response.ok || data?.success !== true ||
+            data?.authenticationMethod !== "google" ||
+            typeof data?.email !== "string" || !data.email.includes("@")) {
+          throw new Error(data?.message || "Unable to verify your Google account.");
+        }
+        const email = data.email.trim().toLowerCase();
+        setGoogleVerifiedEmail(email);
+        setAddForm(prev => ({ ...prev, memberEmail: email }));
+        setResult("Google account verified. Complete your membership information below.");
+        setIsError(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Google verification failed.";
+        setGoogleHandoffError(message);
+        setResult(message);
+        setIsError(true);
+      } finally {
+        setGoogleHandoffPending(false);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -213,6 +258,17 @@ export default function Home() {
         const data = await response.json();
         if (!response.ok) {
           throw new Error(data?.message || "Unable to complete registration.");
+        }
+        if (data?.status === "ready" && typeof data?.redirectUrl === "string") {
+          // The server supplies a configured dashboard URL only for verified Google checkout.
+          const destination = new URL(data.redirectUrl);
+          if (destination.protocol !== "https:" ||
+              !["https://dev-dashboard.petvantagerx.com", "https://dashboard.petvantagerx.com"].includes(destination.origin) ||
+              destination.pathname !== "/" || destination.search || destination.hash) {
+            throw new Error("Untrusted dashboard redirect.");
+          }
+          window.location.replace(destination.href);
+          return;
         }
         if (data?.status === "ready" && typeof data?.passwordSetupUrl === "string") {
           // Avoid storing or logging the one-time Auth0 password ticket.
@@ -347,6 +403,11 @@ export default function Home() {
   },[subscriptionOptions,addForm.subscriptionType]);
 
   async function runAction(action: string) {
+    if (googleHandoffPending) {
+      setIsError(true);
+      setResult("Google verification is still in progress.");
+      return;
+    }
     if (!validate(action)) return;
 
     setIsError(false);
@@ -581,6 +642,7 @@ export default function Home() {
           registrationToken,
           subscriptionType,
           subscriptionPrice,
+          authenticationMethod: googleVerifiedEmail ? "google" : "password",
           memberEmail: addForm.memberEmail,
           memberSubID: addForm.memberSubID,
           partnerName: addForm.partnerName,
@@ -751,7 +813,7 @@ export default function Home() {
 }
 
   const hidePartnerFields = addForm.partnerName === "Direct Registration";
-  const submitDisabled = isSubmitting || !termsAccepted || draftUnavailable;
+  const submitDisabled = isSubmitting || !termsAccepted || draftUnavailable || googleHandoffPending;
   const isUnlimitedSubscription = addForm.subscriptionType.trim().toLowerCase() === "unlimited";
 
   const normalizedFaqSource = normalizePartnerName(faqSource);
@@ -861,6 +923,23 @@ export default function Home() {
           <p className="pvr-form-intro">Choose your plan and tell us about you and your pets.</p>
 
           <h3 style={subSectionTitleStyle}>Enrollee Information</h3>
+          {addForm.partnerName === "Direct Registration" && !isEmbedded && (
+          <div style={{ marginBottom: 18 }}>
+          <button type="button" style={secondaryButtonStyle}
+          disabled={googleHandoffPending || isSubmitting}
+          onClick={() => window.location.assign("/api/google-registration/start")}>
+          {googleHandoffPending ? "Verifying Google account..." : "Continue with Google"}
+          </button>
+          {googleVerifiedEmail && (
+          <p role="status" style={{ color: "#047857", fontWeight: 700 }}>
+          Google verified: {googleVerifiedEmail}
+          </p>
+          )}
+          {googleHandoffError && (
+          <p role="alert" style={{ color: "#b42318" }}>{googleHandoffError}</p>
+          )}
+          </div>
+          )}
 
           <div style={gridStyle}>
             {!hidePartnerFields && (
@@ -950,6 +1029,7 @@ export default function Home() {
               required
               type="email"
               label="Member Email"
+              readOnly={Boolean(googleVerifiedEmail)}
               value={addForm.memberEmail}
               onChange={(v) => updateAddForm("memberEmail", v)}
             />
