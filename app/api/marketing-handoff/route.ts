@@ -1,3 +1,5 @@
+import { Redis } from "@upstash/redis";
+import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 const PRICES: Record<string, {type:string;price:string;minimum:number}> = {
@@ -48,6 +50,17 @@ export async function POST(request:NextRequest) {
   if(process.env.VERCEL_ENV === "production")return fail("Marketing development checkout is disabled in production",403);
   const origin=request.headers.get("origin");
   if(origin && origin!==new URL(returnUrl).origin)return fail("Origin mismatch",403);
+  // The browser passes a one-time ticket, not an authentication cookie shared across domains.
+  const googleTicket=String(form.get("googleTicket")||"");
+  let googleIdentity: { email:string; oauthSub:string; authenticationMethod:string } | null=null;
+  if(googleTicket){
+    if(!/^[a-f0-9]{64}$/.test(googleTicket))return fail("Invalid Google verification",403);
+    const redis=Redis.fromEnv();
+    const pending=await redis.get<{email:string;oauthSub:string;authenticationMethod:string}>(`pvr:marketing-google:${googleTicket}`);
+    if(!pending || pending.authenticationMethod!=="google" || !pending.oauthSub?.startsWith("google-oauth2|") || pending.email!==email.toLowerCase())return fail("Google account does not match the registration email, or verification expired",403);
+    googleIdentity=await redis.getdel<{email:string;oauthSub:string;authenticationMethod:string}>(`pvr:marketing-google:${googleTicket}`);
+    if(!googleIdentity)return fail("Google verification was already used",403);
+  }
   const memberSubID=`PRX${Date.now()}${Math.floor(Math.random()*1000)}`;
   const payload={partnerName:"Direct Registration",affinityGroup:"D2C",subscriptionType:selected.type,subscriptionPrice:selected.price,memberFirst:first,memberLast:last,memberSubID,memberEmail:email,memberPhone:phone,mobilePhone:phone,pets,termsAccepted:true,termsVersion:"2026-06-24"};
   const base=new URL(request.url).origin;
@@ -60,7 +73,14 @@ export async function POST(request:NextRequest) {
     const type=String(verified.subscriptionType||"").trim();
     const price=Number(verified.subscriptionPrice);
     if(!registrationToken||type!==selected.type||Math.round(price*100)!==Math.round(Number(selected.price)*100))return fail("Verified subscription price does not match development pricing",409);
-    const checkoutResponse=await fetch(`${base}/api/stripe/create-checkout-session`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({registrationToken,subscriptionType:type,subscriptionPrice:selected.price,memberEmail:email,memberSubID,partnerName:"Direct Registration",affinityGroup:"D2C",returnUrl}),cache:"no-store"});
+    let checkoutCookie="";
+    if(googleIdentity){
+      const id=randomBytes(32).toString("hex");
+      const stored=await Redis.fromEnv().set(`pvr:google-registration:${id}`,googleIdentity,{ex:3600,nx:true});
+      if(stored!=="OK")return fail("Unable to prepare Google checkout",500);
+      checkoutCookie=`pvr_google_registration=${id}`;
+    }
+    const checkoutResponse=await fetch(`${base}/api/stripe/create-checkout-session`,{method:"POST",headers:{"Content-Type":"application/json",...(checkoutCookie?{"Cookie":checkoutCookie}:{})},body:JSON.stringify({registrationToken,subscriptionType:type,subscriptionPrice:selected.price,memberEmail:email,memberSubID,partnerName:"Direct Registration",affinityGroup:"D2C",returnUrl,authenticationMethod:googleIdentity?"google":"password"}),cache:"no-store"});
     const checkout=await checkoutResponse.json();
     if(!checkoutResponse.ok||checkout?.success!==true||!checkout?.checkoutUrl||!checkout?.sessionId)return fail(String(checkout?.message||"Unable to start secure checkout"),502);
     const stripeUrl=new URL(String(checkout.checkoutUrl));

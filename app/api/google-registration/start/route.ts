@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     : randomBytes(32).toString("hex");
     
   target.searchParams.set("state", state);
+  if (request.nextUrl.searchParams.get("marketing") === "1") target.searchParams.set("marketing", "1");
   const response = NextResponse.redirect(target);
   response.cookies.set("pvr_google_state", state, {
     httpOnly: true,
