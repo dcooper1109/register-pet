@@ -43,6 +43,8 @@ export async function POST(request: NextRequest) {
       console.error("[Google Registration State Mismatch]", {
         browserStatePresent: Boolean(browserState),
         redisStatePresent: Boolean(pending.state),
+        redisRecordType: typeof pending,
+        redisRecordKeys: Object.keys(pending),
         browserStateLength: browserState.length,
         redisStateLength: pending.state?.length,
         cookieNames: request.cookies.getAll().map(c => c.name),
