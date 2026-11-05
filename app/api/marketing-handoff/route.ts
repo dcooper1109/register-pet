@@ -3,9 +3,9 @@ import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 const PRICES: Record<string, {type:string;price:string;minimum:number}> = {
-  one:{type:"One Pet",price:"1.99",minimum:1},
-  two:{type:"Two Pets",price:"2.99",minimum:2},
-  three:{type:"Three or More Pets",price:"3.99",minimum:3},
+  one:{type:"One Pet",price:"4.99",minimum:1},
+  two:{type:"Two Pets",price:"7.99",minimum:2},
+  three:{type:"Three or More Pets",price:"11.99",minimum:3},
 };
 const COOKIE = "pvr_checkout_";
 function allowedReturnUrl(raw: string): string {
