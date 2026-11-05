@@ -98,8 +98,9 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         paymentRecordId,
-        userID: google?.email ?? (session.customer_details?.email ?? session.customer_email),
-        ...(google ? { authenticationMethod: "google", oauthSub: google.oauthSub } : {}),
+        userID: google?.email ?? session.customer_details?.email ?? session.customer_email,
+        authenticationMethod: google ? "google" : "password",
+        ...(google ? { oauthSub: google.oauthSub } : {})
       }),
       cache: "no-store",
     });
