@@ -1,0 +1,1654 @@
+"use client";
+
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { partnerFaqs } from "./faq/data";
+
+import PhoneInput, {
+  isValidPhoneNumber,
+} from "react-phone-number-input";
+
+import "react-phone-number-input/style.css";
+
+const TERMS_VERSION = "2026-06-24";
+const CHECKOUT_DRAFT_KEY = "petvantagerx-pending-checkout";
+const PAYMENT_REQUIRED_MESSAGE = "A valid credit card is required to complete your PetVantageRx registration. Please enter a valid payment method to continue.";
+// Temporary Marketing development prices. Partner pricing still comes from /api/getprice.
+const MARKETING_DEV_PRICES: SubscriptionOption[] = [
+  { subscriptionType: "One Pet", subscriptionPrice: 1.99 },
+  { subscriptionType: "Two Pets", subscriptionPrice: 2.99 },
+  { subscriptionType: "Three or More Pets", subscriptionPrice: 3.99 },
+];
+
+function generateSubscriptionId() {
+  return `PRX${Date.now()}${Math.floor(Math.random() * 1000)}`;
+}
+
+type Pet = {
+  petName: string;
+  petSpecies: string;
+  petBreed: string;
+  petSex: string;
+};
+
+type SubscriptionOption = {
+  subscriptionType: string;
+  subscriptionPrice: number;
+};
+
+const blankPet: Pet = {
+  petName: "",
+  petSpecies: "",
+  petBreed: "",
+  petSex: "",
+};
+
+function normalizePartnerName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function buildPets(count: number, existingPets: Pet[] = []) {
+  return Array.from({ length: count }, (_, index) => ({
+    ...blankPet,
+    ...(existingPets[index] || {}),
+  }));
+}
+
+export default function Home() {
+  const router = useRouter();
+
+  const [addForm, setAddForm] = useState({
+    partnerName: "Direct Registration",
+    affinityGroup: "D2C",
+    subscriptionType: "",
+    subscriptionPrice: "",
+    memberFirst: "",
+    memberLast: "",
+    memberSubID: "",
+    memberEmail: "",
+    memberPhone: "",
+  });
+
+  const [pets, setPets] = useState<Pet[]>(buildPets(1));
+  const [result, setResult] = useState("No request sent yet.");
+  const [isError, setIsError] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [termsScrolled, setTermsScrolled] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [returnUrl, setReturnUrl] = useState("");
+  const [isEmbedded, setIsEmbedded] = useState(false);
+  const [faqSource, setFaqSource] = useState("");
+  const [pendingRegistrationToken, setPendingRegistrationToken] = useState("");
+  const [checkoutCancelled, setCheckoutCancelled] = useState(false);
+  const [checkoutCompleting, setCheckoutCompleting] = useState(false);
+  const [checkoutCompletionError, setCheckoutCompletionError] = useState("");
+  const [draftUnavailable, setDraftUnavailable] = useState(false);
+  const [googleHandoffPending, setGoogleHandoffPending] = useState(false);
+  const [googleVerifiedEmail, setGoogleVerifiedEmail] = useState("");
+  const [googleHandoffError, setGoogleHandoffError] = useState("");
+  const googleRedeemStarted = useRef(false);
+
+  const [subscriptionOptions, setSubscriptionOptions] =
+    useState<SubscriptionOption[]>([]);
+
+  const [loadingPrices, setLoadingPrices] =
+    useState(true);
+
+  const [priceError, setPriceError] = useState("");
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("google_handoff");
+    if (!code || googleRedeemStarted.current) return;
+    googleRedeemStarted.current = true;
+    // Remove the one-time code from history and subsequent referrers immediately.
+    url.searchParams.delete("google_handoff");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    setGoogleHandoffPending(true);
+    setGoogleHandoffError("");
+    void (async () => {
+      try {
+        const response = await fetch("/api/google-registration/redeem", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        const data = await response.json();
+        if (!response.ok || data?.success !== true ||
+            data?.authenticationMethod !== "google" ||
+            typeof data?.email !== "string" || !data.email.includes("@")) {
+          throw new Error(data?.message || "Unable to verify your Google account.");
+        }
+        const email = data.email.trim().toLowerCase();
+        setGoogleVerifiedEmail(email);
+        setAddForm(prev => ({ ...prev, memberEmail: email }));
+        setResult("Google account verified. Complete your membership information below.");
+        setIsError(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Google verification failed.";
+        setGoogleHandoffError(message);
+        setResult(message);
+        setIsError(true);
+      } finally {
+        setGoogleHandoffPending(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("marketing") === "1") {
+      void fetch("/api/marketing-handoff", {cache:"no-store"}).then(r=>r.json()).then(({draft})=>{
+        if (!draft) return;
+        const type = draft.plan === "one" ? "One Pet" : draft.plan === "two" ? "Two Pets" : "Three or More Pets";
+        setAddForm(prev=>({...prev,partnerName:"Direct Registration",affinityGroup:"D2C",memberSubID:prev.memberSubID || generateSubscriptionId(),subscriptionType:type,memberFirst:String(draft.memberFirst),memberLast:String(draft.memberLast),memberEmail:String(draft.memberEmail),memberPhone:String(draft.memberPhone || "")}));
+        setPets(draft.pets.map((pet:Pet)=>({petName:String(pet.petName || ""),petSpecies:String(pet.petSpecies || ""),petBreed:String(pet.petBreed || ""),petSex:String(pet.petSex || "")})));
+        setResult("Review the full Terms and Conditions below, accept them, then continue to secure checkout.");
+      }).catch(()=>setResult("Unable to restore the Marketing registration. Please enter your details below."));
+    }
+
+    const isCancelledCheckout = params.get("payment") === "cancelled";
+    const checkoutSessionId = params.get("stripe_session_id") || params.get("session_id") || "";
+    if (checkoutSessionId) {
+      setCheckoutCompleting(true);
+      setResult("Payment received. Preparing your secure password setup...");
+      void completePaidRegistration(checkoutSessionId);
+      return;
+    }
+    if (isCancelledCheckout) {
+      setCheckoutCancelled(true);
+      const returnedToken = params.get("registrationToken") || "";
+      const storedDraft = localStorage.getItem(CHECKOUT_DRAFT_KEY) ||
+        sessionStorage.getItem(CHECKOUT_DRAFT_KEY);
+      let restored = false;
+      if (storedDraft) {
+        try {
+          const draft = JSON.parse(storedDraft);
+          if (draft.registrationToken && draft.registrationToken === returnedToken &&
+              draft.addForm && Array.isArray(draft.pets)) {
+            setAddForm(draft.addForm);
+            setPets(draft.pets);
+            setTermsAccepted(Boolean(draft.termsAccepted));
+            setTermsScrolled(Boolean(draft.termsScrolled));
+            setPendingRegistrationToken(draft.registrationToken);
+            restored = true;
+          }
+        } catch (error) {
+          console.error("Unable to restore pending registration:", error);
+        }
+      }
+      setDraftUnavailable(!restored);
+      setIsError(false);
+      setResult("No request sent yet.");
+      // Keep the return token in the URL for support/recovery. Do not discard it.
+    }
+
+    const incomingPartnerName = params.get("utm_source")?.trim() || "Direct Registration";
+    const partnerName = params.get("utm_source")?.trim() || "";
+    setFaqSource(partnerName);
+    const affinityGroup = params.get("utm_medium")?.trim() || "";
+    const campaign = params.get("utm_campaign")?.trim() || "";
+    const lastName = params.get("utm_id")?.trim() || "";
+
+    if (params.get("marketing") === "1") {
+      // The Marketing Join page has fixed development prices. Do not call
+      // the partner-pricing API for this registration path.
+      setSubscriptionOptions(MARKETING_DEV_PRICES);
+      setLoadingPrices(false);
+      setPriceError("");
+    } else {
+      loadSubscriptionPrices(incomingPartnerName, isCancelledCheckout);
+    }
+
+    const incomingReturnUrl = params.get("returnUrl")?.trim() || "";
+    setReturnUrl(incomingReturnUrl);
+
+    const embed = params.get("embed") === "true";
+    setIsEmbedded(embed);
+
+    console.log("Return URL received:", incomingReturnUrl);
+
+    if (isCancelledCheckout) return;
+
+    if (!partnerName || !affinityGroup) {
+      setAddForm((prev) => ({
+        ...prev,
+        partnerName: prev.partnerName || "Direct Registration",
+        affinityGroup: prev.affinityGroup || "D2C",
+        memberSubID: generateSubscriptionId(),
+      }));
+
+      setIsError(false);
+      setResult("No request sent yet.");
+      return;
+    }
+
+    const generatedSubID =
+      campaign.toLowerCase() === "x" ? generateSubscriptionId() : campaign;
+
+    const cleanedLastName = lastName.toLowerCase() === "x" ? "" : lastName;
+
+    setAddForm((prev) => ({
+      ...prev,
+      partnerName: partnerName || prev.partnerName,
+      affinityGroup: affinityGroup || prev.affinityGroup,
+      memberSubID: generatedSubID || prev.memberSubID,
+      memberLast: cleanedLastName || prev.memberLast,
+    }));
+  }, []);
+
+  async function completePaidRegistration(checkoutSessionId: string) {
+    // The server validates Stripe payment, registration ownership, and the
+    // associated paymentRecordId before calling the createAuth0User flow.
+    const maxAttempts = 20;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await fetch("/api/stripe/complete-registration", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: JSON.stringify({ checkoutSessionId }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.message || "Unable to complete registration.");
+        }
+        if (data?.status === "ready" && typeof data?.redirectUrl === "string") {
+          // The server supplies a configured dashboard URL only for verified Google checkout.
+          const destination = new URL(data.redirectUrl);
+          if (destination.protocol !== "https:" ||
+              !["https://dev-dashboard.petvantagerx.com", "https://dashboard.petvantagerx.com"].includes(destination.origin) ||
+              destination.pathname !== "/" || destination.search || destination.hash) {
+            throw new Error("Untrusted dashboard redirect.");
+          }
+          window.location.replace(destination.href);
+          return;
+        }
+        if (data?.status === "ready" && typeof data?.passwordSetupUrl === "string") {
+          // Avoid storing or logging the one-time Auth0 password ticket.
+          window.location.replace(data.passwordSetupUrl);
+          return;
+        }
+        if (data?.status !== "pending") {
+          throw new Error("Unexpected registration completion response.");
+        }
+        setResult("Your payment is being confirmed. Preparing your account...");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to complete registration.";
+        setCheckoutCompletionError(message);
+        setIsError(true);
+        setCheckoutCompleting(false);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    setCheckoutCompletionError("Your payment may have succeeded, but account setup is taking longer than expected. Please contact PetVantageRx support. Do not submit another payment.");
+    setCheckoutCompleting(false);
+    setIsError(true);
+  }
+
+  function getRequiredPetCount(
+    subscriptionType: string,
+    options: SubscriptionOption[]
+  ) {
+    const selectedIndex = options.findIndex(
+      (option) => option.subscriptionType === subscriptionType
+    );
+
+    return selectedIndex === -1 ? 1 : selectedIndex + 1;
+  }
+
+  async function loadSubscriptionPrices(
+    partnerName: string,
+    preserveDraft = false
+  ) {
+    try {
+      setLoadingPrices(true);
+      setPriceError("");
+
+      const response = await fetch("/api/getprice", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          partnerName,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (
+        !response.ok ||
+        data?.success !== true ||
+        !Array.isArray(data?.subscriptionOptions)
+      ) {
+        throw new Error(
+          data?.message ||
+            "Unable to retrieve subscription pricing."
+        );
+      }
+
+      const options: SubscriptionOption[] =
+        data.subscriptionOptions
+          .filter(
+            (option: any) =>
+              option?.subscriptionType &&
+              option?.subscriptionPrice !== null &&
+              option?.subscriptionPrice !== undefined
+          )
+          .map((option: any) => ({
+            subscriptionType: String(
+              option.subscriptionType
+            ).trim(),
+            subscriptionPrice: Number(
+              option.subscriptionPrice
+            ),
+          }));
+
+      setSubscriptionOptions(options);
+      if (new URLSearchParams(window.location.search).get("marketing") === "1") {
+        setAddForm(prev=>{
+          const matching=options.find(o=>o.subscriptionType.toLowerCase()===prev.subscriptionType.toLowerCase());
+          return matching ? {...prev,subscriptionPrice:String(matching.subscriptionPrice)} : prev;
+        });
+      }
+
+
+      const unlimitedOption = options.find(
+        (option) =>
+          option.subscriptionType.trim().toLowerCase() === "unlimited"
+      );
+
+      if (unlimitedOption && !preserveDraft) {
+        setAddForm((prev) => ({
+          ...prev,
+          subscriptionType: unlimitedOption.subscriptionType,
+          subscriptionPrice: unlimitedOption.subscriptionPrice.toString(),
+        }));
+
+        setPets((prevPets) => buildPets(1, prevPets));
+      }
+    } catch (error) {
+      console.error(
+        "Subscription pricing error:",
+        error
+      );
+
+      setSubscriptionOptions([]);
+
+      setPriceError(
+        error instanceof Error
+          ? error.message
+          : "Unable to retrieve subscription pricing."
+      );
+    } finally {
+      setLoadingPrices(false);
+    }
+  }
+
+  useEffect(()=>{
+    if (new URLSearchParams(window.location.search).get("marketing") !== "1") return;
+    if (!subscriptionOptions.length) return;
+    setAddForm(prev=>{
+      const option=subscriptionOptions.find(o=>o.subscriptionType.toLowerCase()===prev.subscriptionType.toLowerCase());
+      return option && prev.subscriptionPrice!==String(option.subscriptionPrice) ? {...prev,subscriptionPrice:String(option.subscriptionPrice)} : prev;
+    });
+  },[subscriptionOptions,addForm.subscriptionType]);
+
+  async function runAction(action: string) {
+    if (googleHandoffPending) {
+      setIsError(true);
+      setResult("Google verification is still in progress.");
+      return;
+    }
+    if (!validate(action)) return;
+
+    setIsError(false);
+    setIsSubmitting(true);
+    setResult("Sending request...");
+
+    if (addForm.partnerName.trim() === "Direct Registration" && pendingRegistrationToken) {
+      await startCheckout(pendingRegistrationToken, addForm.subscriptionType, addForm.subscriptionPrice);
+      return;
+    }
+
+    const acceptedAt = new Date().toISOString();
+
+    const payload = {
+      ...addForm,
+
+      mobilePhone: addForm.memberPhone,
+
+      pets: pets.map((pet) => ({
+        petName: pet.petName,
+        petSpecies: pet.petSpecies,
+        petBreed: pet.petBreed,
+        ...(pet.petSex.trim()
+          ? { petSex: pet.petSex }
+          : {}),
+      })),
+
+      termsAccepted,
+      termsAcceptedAt: new Date().toISOString(),
+      termsVersion: "2026-06-24",
+    };
+
+    try {
+      const response = await fetch("/api/pet-service", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action,
+          payload,
+        }),
+      });
+
+      const data = await response.json();
+
+      let responseBody =
+        data?.response?.body ??
+        data?.body ??
+        data?.response ??
+        data;
+
+      /*
+      * Power Automate or APIM may return body as a JSON string.
+      */
+      if (typeof responseBody === "string") {
+        try {
+          responseBody = JSON.parse(responseBody);
+        } catch {
+          // Keep it as a string when it is not JSON.
+        }
+      }
+
+      /*
+      * Handle an additional statusCode/body wrapper.
+      */
+      if (
+        responseBody &&
+        typeof responseBody === "object" &&
+        responseBody.body
+      ) {
+        responseBody = responseBody.body;
+
+        if (typeof responseBody === "string") {
+          try {
+            responseBody = JSON.parse(responseBody);
+          } catch {
+            // Keep it as a string when it is not JSON.
+          }
+        }
+      }
+
+      console.log("Full pet-service response:", data);
+      console.log("Parsed response body:", responseBody);
+
+      if (typeof responseBody === "string") {
+        try {
+          responseBody = JSON.parse(responseBody);
+        } catch {
+          // Leave responseBody as a string if it is not valid JSON.
+        }
+      }
+
+      setIsError(!response.ok);
+
+      if (
+        response.ok &&
+        typeof responseBody === "object" &&
+        responseBody?.success === true
+      ) {
+      if (addForm.partnerName.trim() === "Direct Registration") {
+        setResult("Registration saved. Creating your secure checkout. This may take a few seconds...");
+
+        const registrationToken =
+          String(responseBody?.registrationToken ?? "").trim();
+
+        if (!registrationToken) {
+          console.error(
+            "Registration token missing. Full response:",
+            data
+          );
+
+          setIsError(true);
+          setIsSubmitting(false);
+          setResult(
+            "The pending registration was created, but its registration ID was not returned."
+          );
+          return;
+        }
+
+        const verifiedSubscriptionType =
+          String(responseBody?.subscriptionType ?? "").trim();
+
+        const verifiedSubscriptionPrice =
+          String(responseBody?.subscriptionPrice ?? "").trim();
+
+        if (
+          !verifiedSubscriptionType ||
+          !verifiedSubscriptionPrice
+        ) {
+          console.error(
+            "Subscription type or price missing from pet-service response:",
+            responseBody
+          );
+
+          setIsError(true);
+          setIsSubmitting(false);
+          setResult(
+            "The registration was created, but the verified subscription type or price was not returned."
+          );
+          return;
+        }
+
+        await startCheckout(registrationToken, verifiedSubscriptionType, verifiedSubscriptionPrice);
+        return;
+      }
+
+        // Existing non-direct registration logic continues here.
+        setResult("Registration successful. Redirecting...");
+
+        setTimeout(() => {
+          console.log("Partner:", addForm.partnerName);
+          console.log("Returning to:", returnUrl);
+
+          if (returnUrl) {
+            window.top!.location.href = returnUrl;
+            return;
+          }
+
+          setIsError(true);
+          setIsSubmitting(false);
+          setResult(
+            "Registration succeeded, but the partner return URL was not received."
+          );
+        }, 2000);
+      } else {
+        let responseBody =
+          data?.response?.body ??
+          data?.body ??
+          data?.response ??
+          data;
+
+        if (typeof responseBody === "string") {
+          try {
+            responseBody = JSON.parse(responseBody);
+          } catch {
+            // Leave it as a string if it is not JSON.
+          }
+        }
+
+      const errorMessage =
+        responseBody?.results ||
+        responseBody?.message ||
+        responseBody?.error?.message ||
+        responseBody?.error?.code ||
+        data?.response?.body?.results ||
+        data?.response?.results ||
+        data?.body?.results ||
+        data?.results ||
+        data?.message ||
+        data?.error?.message ||
+        data?.error?.code ||
+        (typeof responseBody === "string"
+          ? responseBody
+          : JSON.stringify(responseBody)) ||
+        "Request failed.";
+        console.log("Registration error response:", data);
+        console.log("Registration parsed error:", responseBody);
+        setResult(errorMessage);
+        setIsError(true);
+        setIsSubmitting(false);
+      }
+    } catch (err) {
+      console.error("Registration submission error:", err);
+
+      setIsError(true);
+      setIsSubmitting(false);
+      setResult(
+        err instanceof Error
+          ? err.message
+          : "An unknown registration error occurred."
+      );
+    }
+  }
+
+
+  async function startCheckout(registrationToken: string, subscriptionType: string, subscriptionPrice: string) {
+    setIsSubmitting(true);
+    setIsError(false);
+    setResult("Creating your secure checkout. This may take a few seconds...");
+    try {
+      setPendingRegistrationToken(registrationToken);
+      const checkoutDraft = JSON.stringify({
+        registrationToken, addForm, pets, termsAccepted, termsScrolled,
+      });
+      localStorage.setItem(CHECKOUT_DRAFT_KEY, checkoutDraft);
+      sessionStorage.setItem(CHECKOUT_DRAFT_KEY, checkoutDraft);
+      const checkoutResponse = await fetch("/api/stripe/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          registrationToken,
+          subscriptionType,
+          subscriptionPrice,
+          memberEmail: addForm.memberEmail,
+          memberSubID: addForm.memberSubID,
+          partnerName: addForm.partnerName,
+          affinityGroup: addForm.affinityGroup,
+          returnUrl: new URLSearchParams(window.location.search).get("returnUrl") || "",
+        }),
+      });
+      const checkoutData = await checkoutResponse.json();
+      if (!checkoutResponse.ok || checkoutData?.success !== true || !checkoutData?.checkoutUrl) {
+        throw new Error(checkoutData?.message || checkoutData?.error || "Unable to start Stripe Checkout.");
+      }
+      window.top?.location.replace(checkoutData.checkoutUrl);
+    } catch (error) {
+      setIsError(true);
+      setIsSubmitting(false);
+      setResult(error instanceof Error ? error.message : "Unable to start Stripe Checkout.");
+    }
+  }
+
+  function updateAddForm(field: string, value: string) {
+    setAddForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function handleSubscriptionTypeChange(value: string) {
+    const requiredPetCount = getRequiredPetCount(
+      value,
+      subscriptionOptions
+    );
+
+    const selectedOption = subscriptionOptions.find(
+      (option) => option.subscriptionType === value
+    );
+
+    setAddForm((prev) => ({
+      ...prev,
+      subscriptionType: value,
+      subscriptionPrice:
+        selectedOption?.subscriptionPrice.toString() ?? "",
+    }));
+
+    setPets((prevPets) =>
+      buildPets(requiredPetCount, prevPets)
+    );
+  }
+
+  function updatePet(index: number, field: keyof Pet, value: string) {
+    setPets((prevPets) => {
+      const updatedPets = [...prevPets];
+      updatedPets[index] = {
+        ...updatedPets[index],
+        [field]: value,
+      };
+      return updatedPets;
+    });
+  }
+
+  function addPet() {
+    setPets((prevPets) => [...prevPets, { ...blankPet }]);
+  }
+
+  function removePet(index: number) {
+    const requiredPetCount = getRequiredPetCount(addForm.subscriptionType, subscriptionOptions);
+
+    setPets((prevPets) => {
+      if (prevPets.length <= requiredPetCount) return prevPets;
+      return prevPets.filter((_, petIndex) => petIndex !== index);
+    });
+  }
+
+  function handleTermsScroll(event: React.UIEvent<HTMLDivElement>) {
+    const element = event.currentTarget;
+    const isAtBottom =
+      element.scrollHeight - element.scrollTop <= element.clientHeight + 8;
+
+    if (isAtBottom) {
+      setTermsScrolled(true);
+    }
+  }
+
+  function validate(action: string) {
+    if (action === "addMemberAndPet") {
+      const required = [
+        ["Member Subscription ID", addForm.memberSubID],
+        ["Partner Name", addForm.partnerName],
+        ["Group", addForm.affinityGroup],
+        ["Subscription Type", addForm.subscriptionType],
+        ["Subscription Price", addForm.subscriptionPrice],
+        ["Member First", addForm.memberFirst],
+        ["Member Last", addForm.memberLast],
+        ["Member Email", addForm.memberEmail],
+      ];
+
+      const missing = required
+        .filter(([_, value]) => !value.trim())
+        .map(([name]) => name);
+
+      const requiredPetCount = getRequiredPetCount(addForm.subscriptionType, subscriptionOptions);
+      const incompletePets: number[] = [];
+
+      pets.slice(0, requiredPetCount).forEach((pet, index) => {
+        if (!pet.petName.trim() || !pet.petSpecies.trim()) {
+          incompletePets.push(index + 1);
+        }
+      });
+
+      if (!termsScrolled || !termsAccepted) {
+        setIsError(true);
+        setResult(
+          !termsScrolled
+            ? "Please scroll to the bottom of the Terms and Conditions before accepting them."
+            : "Please check the box confirming that you have read and agree to the Terms and Conditions."
+        );
+        return false;
+      }
+
+      if (missing.length > 0 || incompletePets.length > 0) {
+        setIsError(true);
+
+        let message = "Please complete required fields:";
+
+        if (missing.length > 0) {
+          message += "\n\n" + missing.join("\n");
+        }
+
+        if (incompletePets.length > 0) {
+          message +=
+            "\n\nComplete Pet Name and Pet Species for Pet Information " +
+            incompletePets.join(", ") +
+            ".";
+        }
+
+        setResult(message);
+        return false;
+      }
+
+      const email = addForm.memberEmail.trim();
+      const emailRegex =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+
+      if (!emailRegex.test(email)) {
+        setIsError(true);
+        setResult("Please enter a valid email address.");
+        return false;
+      }
+
+      if (addForm.memberPhone.trim() && !isValidPhoneNumber(addForm.memberPhone)) {
+        setIsError(true);
+        setResult(
+          "Please enter a valid mobile phone number, including the correct area code, or leave it blank."
+        );
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function getSubscriptionPrice(subscriptionType: string) {
+    const selectedOption = subscriptionOptions.find(
+      (option) => option.subscriptionType === subscriptionType
+    );
+
+    if (!selectedOption) return "";
+
+    return selectedOption.subscriptionPrice.toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+    });
+}
+
+  const hidePartnerFields = addForm.partnerName === "Direct Registration";
+  const submitDisabled = isSubmitting || !termsAccepted || draftUnavailable || googleHandoffPending;
+  const isUnlimitedSubscription = addForm.subscriptionType.trim().toLowerCase() === "unlimited";
+
+  const normalizedFaqSource = normalizePartnerName(faqSource);
+  const currentPartnerFaqs =
+    partnerFaqs[normalizedFaqSource] || [];
+
+  const showFaqButton =
+    faqSource.length > 0 &&
+    currentPartnerFaqs.length > 0;
+
+  return (
+      <main
+        style={{
+          ...pageStyle,
+          padding: isEmbedded ? "8px" : "32px 16px",
+        }}
+      >
+      <div style={shellStyle}>
+        {checkoutCompleting && (
+          <div role="status" style={{ ...cardStyle, textAlign: "center" }}>
+            <h2 style={sectionTitleStyle}>Completing Your Registration</h2>
+            <p>Your payment is being verified and your password setup is being prepared.</p>
+            <p>Please keep this page open. You will be redirected automatically.</p>
+          </div>
+        )}
+        {checkoutCompletionError && (
+          <div role="alert" style={{ ...cardStyle, color: "#b42318" }}>
+            {checkoutCompletionError}
+          </div>
+        )}
+        {!checkoutCompleting && !checkoutCompletionError && checkoutCancelled && (
+          <div role="alert" style={{
+            padding: "16px 20px", marginBottom: 20, borderRadius: 10,
+            border: "1px solid #f5c2c0", backgroundColor: "#fff5f5",
+            color: "#b42318", fontWeight: 700, lineHeight: 1.5,
+          }}>
+            {draftUnavailable
+              ? "Your registration is Pending, but we could not restore your saved information. Do not register again. Please contact PetVantageRx support to complete payment for the existing registration."
+              : PAYMENT_REQUIRED_MESSAGE}
+          </div>
+        )}
+        {!isEmbedded && (
+          <header className="pvr-site-header">
+            <a href="https://www.petvantagerx.com" aria-label="PetVantageRx home">
+              <Image src="/petvantagerx logo on white.png" alt="PetVantageRx" width={184} height={68} priority style={{ width: 184, height: "auto" }} />
+            </a>
+            <span className="pvr-header-label">Secure membership registration</span>
+          </header>
+        )}
+
+        {!checkoutCompleting && !checkoutCompletionError && (
+          <div className={`pvr-registration-layout${isEmbedded ? " pvr-registration-embedded" : ""}`}>
+            {!isEmbedded && (
+              <aside className="pvr-brand-panel" aria-label="PetVantageRx membership benefits">
+                <div className="pvr-brand-content">
+                  <div className="pvr-eyebrow"><span className="pvr-eyebrow-mark" /> JOIN PETVANTAGERX</div>
+                  <h1>Exclusive savings for your pets start here.</h1>
+                  <p>One easy membership gives you access to exclusive prices on pet prescriptions, wellness products, and supplies.</p>
+                  <div className="pvr-benefits">
+                    <div><span aria-hidden="true">✓</span> Member-only pharmacy pricing</div>
+                    <div><span aria-hidden="true">✓</span> Savings on prescriptions and supplies</div>
+                    <div><span aria-hidden="true">✓</span> Convenient online access</div>
+                  </div>
+                  <div className="pvr-virtual-card" aria-label="Example virtual savings card">
+                    <div className="pvr-card-top">
+                      <strong>PetVantageRx</strong>
+                      <span>VIRTUAL SAVINGS<br />CARD</span>
+                    </div>
+                    <div className="pvr-card-bottom">
+                      <strong>Your pet&apos;s name</strong>
+                      <span>PVRX-00 0000</span>
+                    </div>
+                  </div>
+                  <p className="pvr-card-note">Illustrative savings card — your membership details are provided after registration.</p>
+                </div>
+              </aside>
+            )}
+            <div className="pvr-form-panel">
+              {!isEmbedded && (
+                <div className="pvr-auth-tabs" aria-label="Membership options">
+                  <a href="https://dashboard.petvantagerx.com/auth/login">Log in</a>
+                  <span aria-current="page">Join</span>
+                </div>
+              )}
+        {!checkoutCompleting && !checkoutCompletionError && showFaqButton && (
+          <div style={faqButtonRowStyle}>
+            <button
+              type="button"
+              style={faqButtonStyle}
+              onClick={() => {
+                const registrationUrl = window.location.href;
+
+                router.push(
+                  `/faq?partner=${encodeURIComponent(
+                    faqSource
+                  )}&returnUrl=${encodeURIComponent(registrationUrl)}`
+                );
+              }}
+            >
+              ❓ FAQ
+            </button>
+          </div>
+        )}
+
+        {!checkoutCompleting && !checkoutCompletionError && <section className="pvr-form-section">
+          <h2 className="pvr-form-heading">Create your membership</h2>
+          <p className="pvr-form-intro">Choose your plan and tell us about you and your pets.</p>
+
+          <h3 style={subSectionTitleStyle}>Enrollee Information</h3>
+          {addForm.partnerName === "Direct Registration" && !isEmbedded && (
+          <div style={{ marginBottom: 18 }}>
+          <button type="button" style={secondaryButtonStyle}
+          disabled={googleHandoffPending || isSubmitting}
+          onClick={() => window.location.assign("/api/google-registration/start")}>
+          {googleHandoffPending ? "Verifying Google account..." : "Continue with Google"}
+          </button>
+          {googleVerifiedEmail && (
+          <p role="status" style={{ color: "#047857", fontWeight: 700 }}>
+          Google verified: {googleVerifiedEmail}
+          </p>
+          )}
+          {googleHandoffError && (
+          <p role="alert" style={{ color: "#b42318" }}>{googleHandoffError}</p>
+          )}
+          </div>
+          )}
+
+          <div style={gridStyle}>
+            {!hidePartnerFields && (
+              <>
+                <Input
+                  required
+                  label="Partner Name"
+                  value={addForm.partnerName}
+                  onChange={(v) => updateAddForm("partnerName", v)}
+                  readOnly
+                />
+
+                <Input
+                  required
+                  label="Affinity Group"
+                  value={addForm.affinityGroup}
+                  onChange={(v) => updateAddForm("affinityGroup", v)}
+                  readOnly
+                />
+              </>
+            )}
+
+            {!isUnlimitedSubscription && (
+              <>
+                <div>
+                  <label style={labelStyle}>Subscription Type</label>
+
+                  <select
+                    value={addForm.subscriptionType}
+                    onChange={(e) =>
+                      handleSubscriptionTypeChange(e.target.value)
+                    }
+                    style={inputStyle}
+                    disabled={
+                      loadingPrices ||
+                      subscriptionOptions.length === 0
+                    }
+                  >
+                    <option value="">
+                      {loadingPrices
+                        ? "Loading subscription options..."
+                        : "Select Subscription Type"}
+                    </option>
+
+                    {subscriptionOptions.map((option) => (
+                      <option
+                        key={option.subscriptionType}
+                        value={option.subscriptionType}
+                      >
+                        {option.subscriptionType}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Price</label>
+
+                  <input
+                    value={getSubscriptionPrice(
+                      addForm.subscriptionType
+                    )}
+                    readOnly
+                    style={{
+                      ...inputStyle,
+                      fontWeight: "bold",
+                      backgroundColor: "#f9fafb",
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
+            <Input
+              required
+              label="Member First"
+              value={addForm.memberFirst}
+              onChange={(v) => updateAddForm("memberFirst", v)}
+            />
+            <Input
+              required
+              label="Member Last"
+              value={addForm.memberLast}
+              onChange={(v) => updateAddForm("memberLast", v)}
+            />
+            <Input
+              required
+              type="email"
+              label="Member Email"
+              readOnly={Boolean(googleVerifiedEmail)}
+              value={addForm.memberEmail}
+              onChange={(v) => updateAddForm("memberEmail", v)}
+            />
+            <div>
+              <label style={labelStyle}>
+                Mobile Phone (Optional)
+              </label>
+
+              <PhoneInput
+                defaultCountry="US"
+                international={false}
+                countryCallingCodeEditable={false}
+                value={addForm.memberPhone}
+                onChange={(value) =>
+                  updateAddForm("memberPhone", value ?? "")
+                }
+                style={phoneInputContainerStyle}
+                numberInputProps={{
+                  style: phoneNumberInputStyle,
+                  placeholder: "Enter Mobile Phone",
+                }}
+              />
+            </div>
+          </div>
+
+          <div style={sectionDividerStyle} />
+
+          <h3 style={subSectionTitleStyle}>Pet Information</h3>
+
+          {pets.map((pet, index) => (
+            <div key={index} style={petCardStyle}>
+              <div style={petHeaderStyle}>
+                <h4 style={petTitleStyle}>Pet Information {index + 1}</h4>
+
+                {pets.length > getRequiredPetCount(addForm.subscriptionType, subscriptionOptions) && (
+                  <button
+                    type="button"
+                    style={removePetButtonStyle}
+                    onClick={() => removePet(index)}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+
+              <div className="pet-fields-grid">
+                <Input
+                  required
+                  label="Pet Name"
+                  value={pet.petName}
+                  onChange={(v) => updatePet(index, "petName", v)}
+                />
+                <div>
+                  <label style={labelStyle}>
+                    Pet Species
+                    <span style={requiredStyle}> *</span>
+                  </label>
+
+                  <select
+                    value={pet.petSpecies}
+                    onChange={(e) =>
+                      updatePet(index, "petSpecies", e.target.value)
+                    }
+                    style={inputStyle}
+                  >
+                    <option value="">Select Pet Species</option>
+                    <option value="Bird">Bird</option>
+                    <option value="Cat">Cat</option>
+                    <option value="Dog">Dog</option>
+                    <option value="Fish">Fish</option>
+                    <option value="Horse">Horse</option>
+                    <option value="Reptile">Reptile</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>
+                    Pet Gender
+                  </label>
+
+                  <select
+                    value={pet.petSex}
+                    onChange={(e) => updatePet(index, "petSex", e.target.value)}
+                    style={inputStyle}
+                  >
+                    <option value="">Select Pet Sex</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {getRequiredPetCount(addForm.subscriptionType, subscriptionOptions) >= 3 && (
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={addPet}
+            >
+              Add Another Pet
+            </button>
+          )}
+
+          <div style={sectionDividerStyle} />
+
+          <h3 style={subSectionTitleStyle}>Terms and Conditions</h3>
+          <p style={helperTextStyle}>
+            Please read the complete Terms and Conditions. The acceptance box
+            becomes available after you scroll to the bottom.
+          </p>
+
+          <div
+            style={termsBoxStyle}
+            onScroll={handleTermsScroll}
+            tabIndex={0}
+            aria-label="PetVantageRx Terms and Conditions"
+          >
+            <h4 style={termsHeadingStyle}>PetVantageRx Terms</h4>
+            <p>
+              <strong>Updated: June 24, 2026</strong>
+            </p>
+
+            <h5 style={termsSubheadingStyle}>1. Subscription</h5>
+            <p>
+              <strong>Cancellation.</strong> You may cancel your PetVantageRx
+              Subscription by visiting PetVantageRx.com and logging into your Pet
+              Parent account. Select Cancel Subscription and submit. Your
+              subscription will be cancelled immediately. PetVantageRx does not
+              prorate and there are no refunds for subscription fees paid, except
+              as expressly provided in these Terms. If you cancel, you may
+              continue to use subscription benefits until the end of your paid
+              term.
+            </p>
+            <p>
+              <strong>Auto-Renewal.</strong> You may select either a one-month or
+              one-year subscription term. You will be charged immediately for the
+              initial term. After the initial term, your subscription will
+              automatically renew, and the credit or debit card on file will be
+              charged for an additional term at the then-current fee plus
+              applicable taxes, unless you cancel before the end of the current
+              term.
+            </p>
+            <p>
+              <strong>Other Limitations.</strong> PetVantageRx may accept or refuse
+              subscriptions at its discretion. You may not transfer or assign
+              your account or benefits. Members may not purchase products for
+              resale, rental, or delivery to customers or prospective customers.
+              Benefits may be added or removed from time to time.
+            </p>
+            <p>
+              <strong>Fees.</strong> Subscription fees are stated during the
+              signup process and may vary. Fees are non-refundable except as
+              expressly stated in these Terms. Applicable taxes may apply. If all
+              payment methods on file are declined, the subscription may be
+              automatically cancelled and benefits will end.
+            </p>
+            <p>
+              <strong>Terms and Conditions Changes.</strong> PetVantageRx may
+              change subscription terms, benefits, or non-material aspects of the
+              program. Continued enrollment after a change constitutes
+              acceptance. If you do not agree to a change, you must cancel your
+              subscription.
+            </p>
+            <p>
+              <strong>Termination by Us.</strong> PetVantageRx may terminate a
+              subscription or participation at its discretion. Refund eligibility
+              depends on the reason for termination and the remaining paid term.
+              No refund is required for conduct involving fraud, misuse,
+              violations of these Terms or law, or conduct harmful to
+              PetVantageRx or another user.
+            </p>
+
+            <h5 style={termsSubheadingStyle}>2. Use Limitations</h5>
+            <p>
+              <strong>Discount Codes.</strong> Discount codes may only be used by
+              the subscribed pet parent or an immediate family member caring for
+              the registered pet or pets. Transferring discount codes is
+              prohibited. To use a discount code, you must access the pharmacy
+              partner through your PetVantageRx account or an authorized
+              PetVantageRx link. A discount code may not work when visiting a
+              pharmacy partner directly.
+            </p>
+
+            <h5 style={termsSubheadingStyle}>
+              3. Participating Retail Pharmacy Network
+            </h5>
+            <p>
+              <strong>Network.</strong> PetVantageRx is not a pharmacy. It
+              provides access to discounted veterinary medications and products
+              through participating pharmacy partners. Prescription medications
+              and other products may be fulfilled by accredited mail-order or
+              online pharmacy partners.
+            </p>
+
+            <h5 style={termsSubheadingStyle}>4. Product and Services Information</h5>
+            <p>
+              <strong>Products.</strong> The program provides access to products
+              that may require a prescription from a licensed veterinarian, as
+              well as products that do not require a prescription. Prescription
+              medication cannot be provided without a valid prescription from
+              your pet’s veterinarian.
+            </p>
+
+            <p style={endOfTermsStyle}>End of Terms and Conditions</p>
+          </div>
+
+          <label style={termsCheckboxRowStyle}>
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              disabled={!termsScrolled}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              style={checkboxStyle}
+            />
+            <span>
+              I have read and agree to the PetVantageRx Terms and Conditions
+              dated June 24, 2026.
+            </span>
+          </label>
+
+          {!termsScrolled && (
+            <p style={scrollMessageStyle}>
+              Scroll to the bottom of the Terms and Conditions to enable the
+              acceptance checkbox.
+            </p>
+          )}
+
+          <div style={actionResponseRowStyle}>
+            <button
+              type="button"
+              disabled={submitDisabled}
+              style={{
+                ...primaryButtonStyle,
+                ...(submitDisabled ? disabledButtonStyle : {}),
+              }}
+              onClick={() => runAction("addMemberAndPet")}
+            >
+              {isSubmitting ? "Submitting..." : pendingRegistrationToken ? "Complete Payment" : "Continue to Secure Checkout"}
+            </button>
+
+            <div style={responseFieldStyle}>
+              <label style={labelStyle}>{isError ? "Registration issue" : "Registration status"}</label>
+
+              <textarea
+                value={result}
+                readOnly
+                aria-label="API Response"
+                style={{
+                  ...responseTextAreaStyle,
+                  color: isError ? "#b42318" : "#047857",
+                  borderColor: isError ? "#f5c2c0" : "#b7e4c7",
+                  backgroundColor: isError ? "#fff5f5" : "#f0fdf4",
+                }}
+              />
+            </div>
+          </div>
+        </section>}
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function Input({
+  label,
+  value,
+  onChange,
+  required = false,
+  readOnly = false,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+  readOnly?: boolean;
+  type?: React.HTMLInputTypeAttribute;
+}) {
+  return (
+    <div>
+      <label style={labelStyle}>
+        {label}
+        {required && <span style={requiredStyle}> *</span>}
+      </label>
+      <input
+        type={type}
+        value={value}
+        placeholder={`Enter ${label}`}
+        onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        style={{
+          ...inputStyle,
+          backgroundColor: readOnly ? "#f3f4f6" : "#ffffff",
+          cursor: readOnly ? "default" : "text",
+        }}
+      />
+    </div>
+  );
+}
+
+const navy = "#1B2A41";
+const emerald = "#3d7a4a";
+const softBg = "#f5fafa";
+
+const pageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background: softBg,
+  fontFamily: "Lato, Arial, sans-serif",
+  padding: "32px 16px",
+  color: navy,
+};
+
+const shellStyle: React.CSSProperties = {
+  maxWidth: 1240,
+  margin: "0 auto",
+};
+
+const headerStyle: React.CSSProperties = {
+  backgroundColor: "#ffffff",
+  borderRadius: 18,
+  padding: "30px",
+  marginBottom: 20,
+  boxShadow: "0 8px 24px rgba(27, 42, 65, 0.08)",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+};
+
+const titleStyle: React.CSSProperties = {
+  marginTop: 10,
+  marginBottom: 4,
+  fontSize: 34,
+  fontFamily: "Nunito, Arial, sans-serif",
+  color: navy,
+};
+
+const accentLineStyle: React.CSSProperties = {
+  height: 5,
+  width: "100%",
+  background: emerald,
+  borderRadius: 999,
+  margin: "18px 0 28px",
+};
+
+const cardStyle: React.CSSProperties = {
+  border: "1px solid #d9e2df",
+  borderRadius: 18,
+  padding: 26,
+  marginBottom: 28,
+  backgroundColor: "#ffffff",
+  boxShadow: "0 8px 24px rgba(27, 42, 65, 0.06)",
+};
+
+const sectionTitleStyle: React.CSSProperties = {
+  margin: "0 0 18px",
+  fontSize: 22,
+  color: navy,
+  fontFamily: "Nunito, Arial, sans-serif",
+};
+
+const gridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 210px), 1fr))",
+  gap: "14px",
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontWeight: 700,
+  marginBottom: 6,
+  fontSize: 14,
+  color: navy,
+};
+
+const requiredStyle: React.CSSProperties = {
+  color: "#b42318",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 46,
+  padding: "10px 13px",
+  fontSize: 15,
+  border: "1px solid #d3dede",
+  borderRadius: 8,
+  backgroundColor: "#ffffff",
+  color: "#111827",
+  boxSizing: "border-box",
+  outlineColor: emerald,
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  marginTop: 0,
+  padding: "12px 22px",
+  fontSize: 16,
+  fontWeight: 700,
+  cursor: "pointer",
+  border: "none",
+  borderRadius: 10,
+  backgroundColor: emerald,
+  color: "#ffffff",
+  boxShadow: "0 4px 12px rgba(4, 120, 87, 0.25)",
+  whiteSpace: "nowrap",
+};
+
+const disabledButtonStyle: React.CSSProperties = {
+  backgroundColor: "#9ca3af",
+  boxShadow: "none",
+  cursor: "not-allowed",
+  opacity: 0.8,
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  ...primaryButtonStyle,
+  marginTop: 22,
+  marginRight: 12,
+  backgroundColor: navy,
+  boxShadow: "0 4px 12px rgba(27, 42, 65, 0.25)",
+};
+
+const removePetButtonStyle: React.CSSProperties = {
+  padding: "7px 11px",
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
+  border: "1px solid #d9e2df",
+  borderRadius: 8,
+  backgroundColor: "#ffffff",
+  color: navy,
+};
+
+const subSectionTitleStyle: React.CSSProperties = {
+  margin: "18px 0 14px",
+  fontSize: 18,
+  fontFamily: "Nunito, Arial, sans-serif",
+  color: navy,
+};
+
+const petCardStyle: React.CSSProperties = {
+  border: "1px solid #d9e2df",
+  borderRadius: 14,
+  padding: 16,
+  marginBottom: 16,
+  backgroundColor: "#fbfdfd",
+};
+
+const petHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 12,
+};
+
+const petTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 16,
+  fontFamily: "Nunito, Arial, sans-serif",
+  color: navy,
+};
+
+const sectionDividerStyle: React.CSSProperties = {
+  height: 1,
+  backgroundColor: "#d9e2df",
+  margin: "24px 0 8px",
+};
+
+const helperTextStyle: React.CSSProperties = {
+  margin: "0 0 12px",
+  fontSize: 14,
+  lineHeight: 1.5,
+  color: "#4b5563",
+};
+
+const termsBoxStyle: React.CSSProperties = {
+  height: 330,
+  overflowY: "auto",
+  border: "1px solid #d3dede",
+  borderRadius: 10,
+  padding: "18px 20px",
+  backgroundColor: "#fbfdfd",
+  fontSize: 14,
+  lineHeight: 1.6,
+  color: "#263548",
+};
+
+const termsHeadingStyle: React.CSSProperties = {
+  margin: "0 0 4px",
+  fontSize: 19,
+  fontFamily: "Nunito, Arial, sans-serif",
+  color: navy,
+};
+
+const termsSubheadingStyle: React.CSSProperties = {
+  margin: "20px 0 6px",
+  fontSize: 16,
+  color: navy,
+};
+
+const endOfTermsStyle: React.CSSProperties = {
+  marginTop: 24,
+  paddingTop: 14,
+  borderTop: "1px solid #d9e2df",
+  fontWeight: 700,
+  textAlign: "center",
+  color: emerald,
+};
+
+const termsCheckboxRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 10,
+  marginTop: 14,
+  fontSize: 14,
+  fontWeight: 700,
+  lineHeight: 1.5,
+  color: navy,
+};
+
+const checkboxStyle: React.CSSProperties = {
+  width: 18,
+  height: 18,
+  marginTop: 1,
+  accentColor: emerald,
+  flexShrink: 0,
+};
+
+const scrollMessageStyle: React.CSSProperties = {
+  margin: "8px 0 0 28px",
+  fontSize: 13,
+  color: "#6b7280",
+};
+
+const actionResponseRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "end",
+  gap: 18,
+  marginTop: 22,
+  flexWrap: "wrap",
+};
+
+const responseFieldStyle: React.CSSProperties = {
+  flex: "1 1 420px",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const responseTextAreaStyle: React.CSSProperties = {
+  width: "100%",
+  height: 50,
+  minHeight: 50,
+  padding: "11px",
+  fontSize: 15,
+  fontFamily: "Lato, Arial, sans-serif",
+  fontWeight: 700,
+  lineHeight: "24px",
+  resize: "none",
+  borderRadius: 8,
+  border: "1px solid",
+  boxSizing: "border-box",
+  overflow: "hidden",
+};
+
+const faqButtonRowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  marginBottom: 20,
+};
+
+const faqButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 5,
+
+  height: 30,
+  padding: "0 12px",
+
+  backgroundColor: emerald, // or "#3d7a4a"
+
+  color: "#fff",
+  border: "none",
+  borderRadius: 999,
+
+  fontSize: 11,
+  fontWeight: 700,
+  fontFamily: "Arial, Helvetica, sans-serif",
+
+  textDecoration: "none",
+  whiteSpace: "nowrap",
+
+  boxShadow: "0 1px 4px rgba(0,0,0,.15)",
+
+  cursor: "pointer",
+  transition: "all .2s ease",
+};
+
+const phoneInputContainerStyle: React.CSSProperties = {
+  width: "100%",
+  height: 42,
+  display: "flex",
+  alignItems: "center",
+    padding: "0 11px",
+  border: "1px solid #d3dede",
+  borderRadius: 8,
+  backgroundColor: "#ffffff",
+  boxSizing: "border-box",
+};
+
+const phoneNumberInputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 40,
+  border: "none",
+  outline: "none",
+  fontSize: 15,
+  backgroundColor: "transparent",
+  color: "#111827",
+};
