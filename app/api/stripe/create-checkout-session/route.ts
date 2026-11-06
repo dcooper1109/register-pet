@@ -421,38 +421,9 @@ export async function POST(request: Request) {
     }
 
     logTiming("google-checkout-binding",googleBindingStart);
-    const stripeCustomerID =
-      typeof session.customer === "string"
-        ? session.customer
-        : session.customer?.id ?? "";
-
-    const stripeSubscriptionID =
-      typeof session.subscription === "string"
-        ? session.subscription
-        : session.subscription?.id ?? "";
-
-    /*
-     * Save the initial Stripe values on the payment row.
-     * The webhook will later add the final paid/customer/
-     * subscription/invoice values.
-     */
-    const updatePaymentStart = Date.now();
-    console.log("TIMING - Update Payment Record: started");
-    await updatePaymentRecord({
-      paymentRecordId,
-      registrationToken,
-      partnerName,
-      memberSubID,
-      memberEmail,
-      stripeCheckoutID: session.id,
-      stripeCheckoutURL: session.url,
-      stripeCustomerID,
-      stripeSubscriptionID,
-      stripePaymentStatus: session.payment_status,
-      paymentTrackingStatus: "Checkout Created",
-    });
-
-    logTiming("update-payment-record",updatePaymentStart);
+    // The checkout.session.completed webhook saves the Checkout Session ID
+    // and subsequent Stripe details after payment. Do not block the
+    // redirect with a separate "Checkout Created" Dataverse update.
 
     const checkoutResult = NextResponse.json({
       success: true,
