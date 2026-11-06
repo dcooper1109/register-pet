@@ -272,6 +272,16 @@ export async function POST(request: Request) {
       );
     }
 
+    // Marketing registrations use one identifier for both Add Member and Stripe.
+    // Do not require the Add Member API to finish before creating a payment record.
+    // Keep partner registrations compatible with their existing token conventions.
+    if (partnerName === "Direct Registration" && registrationToken !== memberSubID) {
+      return NextResponse.json(
+        { success: false, message: "Registration token must match member subscription ID." },
+        { status: 400 }
+      );
+    }
+
     // Fixed development prices for direct registrations. Never trust the browser amount.
     // Do not apply these prices to partner registrations.
     if (partnerName === "Direct Registration" && process.env.VERCEL_ENV !== "production") {

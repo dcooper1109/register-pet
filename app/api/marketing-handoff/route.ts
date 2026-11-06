@@ -61,18 +61,13 @@ export async function POST(request:NextRequest) {
     googleIdentity=await redis.getdel<{email:string;oauthSub:string;authenticationMethod:string}>(`pvr:marketing-google:${googleTicket}`);
     if(!googleIdentity)return fail("Google verification was already used",403);
   }
-  const memberSubID=`PRX${Date.now()}${Math.floor(Math.random()*1000)}`;
-  const payload={partnerName:"Direct Registration",affinityGroup:"D2C",subscriptionType:selected.type,subscriptionPrice:selected.price,memberFirst:first,memberLast:last,memberSubID,memberEmail:email,memberPhone:phone,mobilePhone:phone,pets,termsAccepted:true,termsVersion:"2026-06-24"};
+  const memberSubID=`PRX${Date.now()}${randomBytes(6).toString("hex")}`;
+  const registrationToken=memberSubID;
+  const payload={partnerName:"Direct Registration",affinityGroup:"D2C",subscriptionType:selected.type,subscriptionPrice:selected.price,memberFirst:first,memberLast:last,memberSubID,registrationToken,memberEmail:email,memberPhone:phone,mobilePhone:phone,pets,termsAccepted:true,termsVersion:"2026-06-24"};
   const base=new URL(request.url).origin;
   try {
-    const memberResponse=await fetch(`${base}/api/pet-service`,{method:"POST",headers:{"Content-Type":"application/json","x-forwarded-for":request.headers.get("x-forwarded-for")||""},body:JSON.stringify({action:"addMemberAndPet",payload}),cache:"no-store"});
-    const memberData=await memberResponse.json();
-    const verified=unpack(memberData);
-    if(!memberResponse.ok||verified?.success!==true)return fail(String(verified?.message||verified?.results||"Unable to save registration"),502);
-    const registrationToken=String(verified.registrationToken||"").trim();
-    const type=String(verified.subscriptionType||"").trim();
-    const price=Number(verified.subscriptionPrice);
-    if(!registrationToken||type!==selected.type||Math.round(price*100)!==Math.round(Number(selected.price)*100))return fail("Verified subscription price does not match development pricing",409);
+    // Prepare Google identity before starting either independent operation.
+    // The one-time marketing ticket was verified and consumed above.
     let checkoutCookie="";
     if(googleIdentity){
       const id=randomBytes(32).toString("hex");
@@ -80,11 +75,54 @@ export async function POST(request:NextRequest) {
       if(stored!=="OK")return fail("Unable to prepare Google checkout",500);
       checkoutCookie=`pvr_google_registration=${id}`;
     }
-    const checkoutResponse=await fetch(`${base}/api/stripe/create-checkout-session`,{method:"POST",headers:{"Content-Type":"application/json",...(checkoutCookie?{"Cookie":checkoutCookie}:{})},body:JSON.stringify({registrationToken,subscriptionType:type,subscriptionPrice:selected.price,memberEmail:email,memberSubID,partnerName:"Direct Registration",affinityGroup:"D2C",returnUrl,authenticationMethod:googleIdentity?"google":"password"}),cache:"no-store"});
-    const checkout=await checkoutResponse.json();
-    if(!checkoutResponse.ok||checkout?.success!==true||!checkout?.checkoutUrl||!checkout?.sessionId)return fail(String(checkout?.message||"Unable to start secure checkout"),502);
+
+    // The payment-record API requires the Contact created by Add Member.
+    // Wait for Add Member to complete before starting Stripe Checkout.
+    const memberStart=Date.now();
+    const memberResponse=await fetch(`${base}/api/pet-service`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-forwarded-for":request.headers.get("x-forwarded-for")||""},
+      body:JSON.stringify({action:"addMemberAndPet",payload}),
+      cache:"no-store"
+    });
+    const memberData=await memberResponse.json().catch(()=>null);
+    const verified=unpack(memberData);
+    console.log("TIMING - Marketing Add Member:",Date.now()-memberStart,"ms",{memberSubID});
+    if(!memberResponse.ok||verified?.success!==true){
+      console.error("[Marketing Add Member failed]",{memberSubID,status:memberResponse.status});
+      return fail(String(verified?.message||verified?.results||"Unable to save registration"),502);
+    }
+    // The API now echoes memberSubID as registrationToken. Never use its returned
+    // token or price as inputs to Stripe; these are only consistency checks.
+    const returnedToken=String(verified.registrationToken||"").trim();
+    const returnedType=String(verified.subscriptionType||"").trim();
+    const returnedPrice=Number(verified.subscriptionPrice);
+    if(returnedToken!==registrationToken||returnedType!==selected.type||
+       !Number.isFinite(returnedPrice)||
+       Math.round(returnedPrice*100)!==Math.round(Number(selected.price)*100)){
+      console.error("[Marketing Add Member response mismatch]",{memberSubID});
+      return fail("Add Member response does not match registration details",409);
+    }
+    // Contact now exists. Stripe may safely create its related payment record.
+    const checkoutStart=Date.now();
+    const checkoutResponse=await fetch(`${base}/api/stripe/create-checkout-session`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json",...(checkoutCookie?{"Cookie":checkoutCookie}:{})},
+      body:JSON.stringify({
+        registrationToken,subscriptionType:selected.type,subscriptionPrice:selected.price,
+        memberEmail:email,memberSubID,partnerName:"Direct Registration",affinityGroup:"D2C",
+        returnUrl,authenticationMethod:googleIdentity?"google":"password"
+      }),
+      cache:"no-store"
+    });
+    const checkout=await checkoutResponse.json().catch(()=>null);
+    console.log("TIMING - Marketing Stripe Checkout:",Date.now()-checkoutStart,"ms",{memberSubID});
+    if(!checkoutResponse.ok||checkout?.success!==true||!checkout?.checkoutUrl||!checkout?.sessionId){
+      console.error("[Marketing Stripe checkout failed]",{memberSubID,status:checkoutResponse.status});
+      return fail(String(checkout?.message||"Unable to start secure checkout"),502);
+    }
     const stripeUrl=new URL(String(checkout.checkoutUrl));
-    if(stripeUrl.protocol!=="https:"||!stripeUrl.hostname.endsWith("stripe.com"))return fail("Invalid checkout destination",502);
+    if(stripeUrl.protocol!=="https:"||!(stripeUrl.hostname==="stripe.com"||stripeUrl.hostname.endsWith(".stripe.com")))return fail("Invalid checkout destination",502);
     const redirect=NextResponse.redirect(stripeUrl,303);
     // Transfer the HttpOnly checkout binding from the internal checkout response
     // to the browser; required by /api/stripe/complete-registration after payment.
