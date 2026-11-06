@@ -1,0 +1,109 @@
+
+import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
+
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
+  // Temporary protection for this diagnostic endpoint.
+  // Requires an authenticated Auth0 session or an
+  // equivalent server-side authorization check.
+  // Do not deploy this route without that protection.
+
+  const start = performance.now();
+
+  try {
+    const tenantId = process.env.DATAVERSE_TENANT_ID;
+    const clientId = process.env.DATAVERSE_CLIENT_ID;
+    const clientSecret = process.env.DATAVERSE_CLIENT_SECRET;
+    const dataverseUrl = process.env.DATAVERSE_URL?.replace(/\/$/, "");
+
+    if (!tenantId || !clientId || !clientSecret || !dataverseUrl) {
+      return NextResponse.json(
+        { success: false, error: "Dataverse configuration missing" },
+        { status: 500 }
+      );
+    }
+
+    const tokenStart = performance.now();
+
+    const tokenResponse = await fetch(
+      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: clientId,
+          client_secret: clientSecret,
+          scope: `${dataverseUrl}/.default`,
+        }),
+        cache: "no-store",
+      }
+    );
+
+    const tokenData = await tokenResponse.json();
+    const tokenMs = Math.round(performance.now() - tokenStart);
+
+    if (!tokenResponse.ok || !tokenData.access_token) {
+      return NextResponse.json(
+        {
+          success: false,
+          stage: "Microsoft Entra authentication",
+          status: tokenResponse.status,
+          tokenMs,
+        },
+        { status: 502 }
+      );
+    }
+
+    const queryStart = performance.now();
+
+    const dataverseResponse = await fetch(
+      `${dataverseUrl}/api/data/v9.2/contacts?$select=contactid&$top=1`,
+      {
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          Accept: "application/json",
+          "OData-Version": "4.0",
+          "OData-MaxVersion": "4.0",
+        },
+        cache: "no-store",
+      }
+    );
+
+    const dataverseMs = Math.round(performance.now() - queryStart);
+
+    if (!dataverseResponse.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          stage: "Dataverse query",
+          status: dataverseResponse.status,
+          tokenMs,
+          dataverseMs,
+        },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      tokenMs,
+      dataverseMs,
+      totalMs: Math.round(performance.now() - start),
+    });
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Dataverse connection test failed",
+      },
+      { status: 500 }
+    );
+  }
+}
