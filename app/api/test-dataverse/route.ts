@@ -55,6 +55,8 @@ export async function GET(request: Request) {
           success: false,
           stage: "Microsoft Entra authentication",
           status: tokenResponse.status,
+          entraError: tokenData.error,
+          entraErrorCode: tokenData.error_codes?.[0] ?? null,
           tokenMs,
         },
         { status: 502 }
