@@ -65,9 +65,13 @@ export async function POST(request:NextRequest) {
   const registrationToken=memberSubID;
   const payload={partnerName:"Direct Registration",affinityGroup:"D2C",subscriptionType:selected.type,subscriptionPrice:selected.price,memberFirst:first,memberLast:last,memberSubID,registrationToken,memberEmail:email,memberPhone:phone,mobilePhone:phone,pets,termsAccepted:true,termsVersion:"2026-06-24"};
   const base=new URL(request.url).origin;
+  const totalStart=Date.now();
+  const logTiming=(step:string,started:number,details:Record<string,unknown>={})=>
+    console.log("[PVR TIMING]",JSON.stringify({route:"marketing-handoff",step,elapsedMs:Date.now()-started,memberSubID,...details}));
   try {
     // Prepare Google identity before starting either independent operation.
     // The one-time marketing ticket was verified and consumed above.
+    const googleStart=Date.now();
     let checkoutCookie="";
     if(googleIdentity){
       const id=randomBytes(32).toString("hex");
@@ -75,6 +79,8 @@ export async function POST(request:NextRequest) {
       if(stored!=="OK")return fail("Unable to prepare Google checkout",500);
       checkoutCookie=`pvr_google_registration=${id}`;
     }
+
+    logTiming("google-session-preparation",googleStart);
 
     // The payment-record API requires the Contact created by Add Member.
     // Wait for Add Member to complete before starting Stripe Checkout.
@@ -87,7 +93,7 @@ export async function POST(request:NextRequest) {
     });
     const memberData=await memberResponse.json().catch(()=>null);
     const verified=unpack(memberData);
-    console.log("TIMING - Marketing Add Member:",Date.now()-memberStart,"ms",{memberSubID});
+    logTiming("add-member-api",memberStart,{status:memberResponse.status,success:verified?.success===true});
     if(!memberResponse.ok||verified?.success!==true){
       console.error("[Marketing Add Member failed]",{memberSubID,status:memberResponse.status});
       return fail(String(verified?.message||verified?.results||"Unable to save registration"),502);
@@ -116,7 +122,7 @@ export async function POST(request:NextRequest) {
       cache:"no-store"
     });
     const checkout=await checkoutResponse.json().catch(()=>null);
-    console.log("TIMING - Marketing Stripe Checkout:",Date.now()-checkoutStart,"ms",{memberSubID});
+    logTiming("stripe-checkout-api",checkoutStart,{status:checkoutResponse.status,success:checkout?.success===true});
     if(!checkoutResponse.ok||checkout?.success!==true||!checkout?.checkoutUrl||!checkout?.sessionId){
       console.error("[Marketing Stripe checkout failed]",{memberSubID,status:checkoutResponse.status});
       return fail(String(checkout?.message||"Unable to start secure checkout"),502);
@@ -131,6 +137,7 @@ export async function POST(request:NextRequest) {
     if(!binding.includes(expected+"="))return fail("Checkout binding was not created",502);
     const cookie=checkoutResponse.headers.getSetCookie?.().find(v=>v.startsWith(expected+"="))||binding;
     redirect.headers.append("set-cookie",cookie);
+    logTiming("total-to-stripe-redirect",totalStart,{success:true});
     return redirect;
-  }catch(e){console.error("Marketing registration error",e);return fail("Server error during registration",500);}
+  }catch(e){console.error("Marketing registration error",e);logTiming("total-to-error",totalStart,{success:false});return fail("Server error during registration",500);}
 }

@@ -203,9 +203,13 @@ export async function POST(request: Request) {
   let partnerName = "";
   let memberSubID = "";
   let memberEmail = "";
+  const routeStart=Date.now();
+  const logTiming=(step:string,started:number,details:Record<string,unknown>={})=>
+    console.log("[PVR TIMING]",JSON.stringify({route:"create-checkout-session",step,elapsedMs:Date.now()-started,memberSubID,...details}));
 
   try {
     const body = await request.json();
+    const googleLookupStart=Date.now();
     // Only the server-side, HttpOnly Redis identity can select Google registration.
     const cookieHeader = request.headers.get("cookie") || "";
     const googleCookie = cookieHeader.split(";").map(x => x.trim())
@@ -223,6 +227,7 @@ export async function POST(request: Request) {
       googleIdentity = stored;
     }
 
+    logTiming("google-identity-lookup",googleLookupStart);
     const authenticationMethod = body?.authenticationMethod;
     if (authenticationMethod !== "google" && authenticationMethod !== "password") {
       return NextResponse.json(
@@ -312,7 +317,7 @@ export async function POST(request: Request) {
       affinityGroup: affinityGroup ?? "",
     });
 
-    console.log("TIMING - Create Payment Record:", Date.now() - createPaymentStart, "ms");
+    logTiming("create-payment-record",createPaymentStart);
 
     paymentRecordId = paymentRecord.paymentRecordId;
     const baseUrl =
@@ -395,12 +400,13 @@ export async function POST(request: Request) {
         `&registrationToken=${encodeURIComponent(registrationToken)}`,
     });
 
-    console.log("TIMING - Stripe Checkout Session:", Date.now() - stripeCheckoutStart, "ms");
+    logTiming("stripe-session-create",stripeCheckoutStart);
 
     if (!session.url) {
       throw new Error("Stripe did not return a Checkout URL.");
     }
 
+    const googleBindingStart=Date.now();
     // Persist the identity with this specific checkout, not with a browser-provided flag.
     // It survives the Stripe redirect and expiration of the initial Google cookie.
     if (googleIdentity) {
@@ -414,6 +420,7 @@ export async function POST(request: Request) {
       if (result !== "OK") throw new Error("Unable to bind Google identity to checkout.");
     }
 
+    logTiming("google-checkout-binding",googleBindingStart);
     const stripeCustomerID =
       typeof session.customer === "string"
         ? session.customer
@@ -445,7 +452,7 @@ export async function POST(request: Request) {
       paymentTrackingStatus: "Checkout Created",
     });
 
-    console.log("TIMING - Update Payment Record:", Date.now() - updatePaymentStart, "ms");
+    logTiming("update-payment-record",updatePaymentStart);
 
     const checkoutResult = NextResponse.json({
       success: true,
@@ -462,11 +469,13 @@ export async function POST(request: Request) {
       path: "/",
       maxAge: 60 * 60 * 24,
     });
+    logTiming("total-checkout-api",routeStart,{success:true});
     return checkoutResult;
 
   } catch (error) {
 
     console.error("Stripe Checkout error:", error);
+    logTiming("total-checkout-api",routeStart,{success:false});
 
     const errorMessage =
       error instanceof Error
