@@ -261,7 +261,7 @@ export async function addMemberAndPetsDataverse(
     batchResponse.ok &&
     embeddedStatuses.length === operations.length &&
     embeddedStatuses.every(
-      (status) => status === 201 || status === 204
+      (status) => status >= 200 && status < 300
     );
 
   if (!successful) {
