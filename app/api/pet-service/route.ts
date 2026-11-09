@@ -1,3 +1,5 @@
+import { addMemberAndPetsDataverse } from "@/lib/addMemberAndPetsDataverse";
+
 export async function POST(req: Request) {
   try {
     const { action, payload } = await req.json();
@@ -31,7 +33,11 @@ export async function POST(req: Request) {
       subscriptionKey = serviceUpdateSubscriptionKey ?? "";
     }
 
-    if (!url || !subscriptionKey) {
+      if (
+        !(action === "addMemberAndPet" &&
+          process.env.ADD_MEMBER_BACKEND === "direct") &&
+        (!url || !subscriptionKey)
+      ) {
       return Response.json(
         {
           success: false,
@@ -106,10 +112,41 @@ export async function POST(req: Request) {
             subscriptionStatus: "Pending",
             termsAccepted: true,
             termsVersion: payload.termsVersion.trim(),
+            termsAcceptedAt: new Date().toISOString(),
             termsAcceptanceSource: "register-pet",
             termsAcceptanceIp: acceptanceIp,
           }
         : payload;
+
+    if (
+      action === "addMemberAndPet" &&
+      process.env.ADD_MEMBER_BACKEND === "direct"
+    ) {
+      if (process.env.VERCEL_ENV !== "preview") {
+        return Response.json(
+          {
+            success: false,
+            message: "Direct Add Member is Preview-only.",
+          },
+          { status: 403 }
+        );
+      }
+
+      const result = await addMemberAndPetsDataverse(
+        outgoingPayload
+      );
+
+      const success = result.success === true;
+
+      return Response.json(
+        {
+          success,
+          status: success ? 200 : 409,
+          response: result,
+        },
+        { status: success ? 200 : 409 }
+      );
+    }
 
     const apiResponse = await fetch(url, {
       method: "POST",
