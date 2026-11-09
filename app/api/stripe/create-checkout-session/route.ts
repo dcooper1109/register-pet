@@ -1,3 +1,4 @@
+import { createDataversePaymentRecord } from "@/lib/createDataversePaymentRecord";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
@@ -84,7 +85,7 @@ function extractResponseBody(data: any): any {
   return responseBody;
 }
 
-async function createPaymentRecord(
+async function createPaymentRecordPowerAutomate(
   input: CreatePaymentRecordInput
 ): Promise<CreatePaymentRecordResult> {
   const url = process.env.APIM_CREATE_PAYMENT_RECORD_URL;
@@ -142,6 +143,16 @@ async function createPaymentRecord(
     success: true,
     paymentRecordId: String(paymentRecordId),
   };
+}
+
+async function createPaymentRecord(
+  input: CreatePaymentRecordInput
+): Promise<CreatePaymentRecordResult> {
+  if (process.env.PAYMENT_RECORD_BACKEND === "direct") {
+    return createDataversePaymentRecord(input);
+  }
+
+  return createPaymentRecordPowerAutomate(input);
 }
 
 async function updatePaymentRecord(
