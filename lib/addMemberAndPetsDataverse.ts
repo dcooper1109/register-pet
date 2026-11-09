@@ -187,7 +187,7 @@ export async function addMemberAndPetsDataverse(
     firstname: input.memberFirst,
     mobilephone: input.mobilePhone || null,
     new_state: 100000014,
-    new_accesstoadvantagex: true,
+    new_accesspetvantagerx: true,
     new_affinitygroup: input.affinityGroup,
     new_petsubscriptionid: input.memberSubID,
     new_subscriptionstatus: input.subscriptionStatus,
