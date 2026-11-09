@@ -47,7 +47,7 @@ export async function POST(request:NextRequest) {
   // so validate the return URL and Origin when provided.
   const returnUrl=allowedReturnUrl(String(form.get("returnUrl")||""));
   if(!returnUrl)return fail("Marketing return address not allowed",403);
-  if(process.env.VERCEL_ENV === "production")return fail("Marketing development checkout is disabled in production",403);
+
   const origin=request.headers.get("origin");
   if(origin && origin!==new URL(returnUrl).origin)return fail("Origin mismatch",403);
   // The browser passes a one-time ticket, not an authentication cookie shared across domains.
