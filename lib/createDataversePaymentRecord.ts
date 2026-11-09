@@ -71,8 +71,15 @@ export async function createDataversePaymentRecord(
 ): Promise<{ success: boolean; paymentRecordId: string }> {
   const started = performance.now();
 
-  if (process.env.VERCEL_ENV !== "preview") {
-    throw new Error("Direct Dataverse creation is enabled for Preview only");
+  if (
+    process.env.VERCEL_ENV !== "preview" &&
+    process.env.VERCEL_ENV !== "production"
+  ) {
+    throw new Error("Direct Dataverse creation requires Vercel Preview or Production");
+  }
+
+  if (process.env.PAYMENT_RECORD_BACKEND !== "direct") {
+    throw new Error("Direct Payment Record backend is not enabled");
   }
 
   const tenant = process.env.DATAVERSE_TENANT_ID;

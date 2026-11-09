@@ -122,11 +122,14 @@ export async function POST(req: Request) {
       action === "addMemberAndPet" &&
       process.env.ADD_MEMBER_BACKEND === "direct"
     ) {
-      if (process.env.VERCEL_ENV !== "preview") {
+      if (
+        process.env.VERCEL_ENV !== "preview" &&
+        process.env.VERCEL_ENV !== "production"
+      ) {
         return Response.json(
           {
             success: false,
-            message: "Direct Add Member is Preview-only.",
+            message: "Direct Add Member requires Vercel Preview or Production.",
           },
           { status: 403 }
         );

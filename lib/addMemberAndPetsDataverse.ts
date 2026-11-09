@@ -54,8 +54,15 @@ export async function addMemberAndPetsDataverse(
 ): Promise<Record<string, unknown>> {
   const started = performance.now();
 
-  if (process.env.VERCEL_ENV !== "preview") {
-    throw new Error("Direct Add Member is permitted in Preview only");
+  if (
+    process.env.VERCEL_ENV !== "preview" &&
+    process.env.VERCEL_ENV !== "production"
+  ) {
+    throw new Error("Direct Add Member requires Vercel Preview or Production");
+  }
+
+  if (process.env.ADD_MEMBER_BACKEND !== "direct") {
+    throw new Error("Direct Add Member backend is not enabled");
   }
 
   const tenant = process.env.DATAVERSE_TENANT_ID;
