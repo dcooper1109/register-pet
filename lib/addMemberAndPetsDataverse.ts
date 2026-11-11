@@ -90,6 +90,7 @@ export async function addMemberAndPetsDataverse(
     throw new Error("Invalid Add Member input");
   }
 
+  const tokenStart = performance.now();
   const tokenResponse = await fetch(
     `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
     {
@@ -116,6 +117,8 @@ export async function addMemberAndPetsDataverse(
     throw new Error("Dataverse access token missing");
   }
 
+  const tokenMs = Math.round(performance.now() - tokenStart);
+
   const api = `${base}/api/data/v9.2`;
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -134,6 +137,7 @@ export async function addMemberAndPetsDataverse(
   );
   emailUrl.searchParams.set("$top", "2");
 
+  const emailStart = performance.now();
   const emailResponse = await fetch(emailUrl, {
     headers,
     cache: "no-store",
@@ -144,6 +148,7 @@ export async function addMemberAndPetsDataverse(
   }
 
   const contacts = (await json(emailResponse)).value ?? [];
+  const emailMs = Math.round(performance.now() - emailStart);
 
   if (contacts.length > 0) {
     return {
@@ -163,6 +168,7 @@ export async function addMemberAndPetsDataverse(
   );
   accountUrl.searchParams.set("$top", "2");
 
+  const accountStart = performance.now();
   const accountResponse = await fetch(accountUrl, {
     headers,
     cache: "no-store",
@@ -173,6 +179,7 @@ export async function addMemberAndPetsDataverse(
   }
 
   const accounts = (await json(accountResponse)).value ?? [];
+  const accountMs = Math.round(performance.now() - accountStart);
 
   if (accounts.length === 0) {
     return { success: false, message: "Partner does not exist" };
@@ -246,6 +253,7 @@ export async function addMemberAndPetsDataverse(
   body += `--${changeBoundary}--${CRLF}`;
   body += `--${batchBoundary}--${CRLF}`;
 
+  const batchStart = performance.now();
   const batchResponse = await fetch(`${api}/$batch`, {
     method: "POST",
     headers: {
@@ -257,6 +265,7 @@ export async function addMemberAndPetsDataverse(
   });
 
   const batchText = await batchResponse.text();
+  const batchMs = Math.round(performance.now() - batchStart);
 
   // A batch can return HTTP 200 even when an operation inside it failed.
   // Check the embedded HTTP statuses as well.
@@ -287,6 +296,11 @@ export async function addMemberAndPetsDataverse(
     JSON.stringify({
       operation: "add-member-and-pets",
       petCount: input.pets.length,
+      tokenMs,
+      emailMs,
+      accountMs,
+      batchMs,
+      totalMs: Math.round(performance.now() - started),
       elapsedMs: Math.round(performance.now() - started),
     })
   );
