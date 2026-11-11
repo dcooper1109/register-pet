@@ -1,4 +1,5 @@
 import "server-only";
+import { getDataverseToken } from "@/lib/dataverseAuth";
 
 export type DirectPaymentInput = {
   registrationToken: string;
@@ -8,6 +9,7 @@ export type DirectPaymentInput = {
   subscriptionPrice: string | number;
   partnerName: string;
   affinityGroup: string;
+  trustedContact?: { contactId: string; accountId: string; lastName: string };
 };
 
 type Contact = {
@@ -113,36 +115,11 @@ export async function createDataversePaymentRecord(
 
   const tokenStart = performance.now();
 
-  const tokenResponse = await fetch(
-    `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: client,
-        client_secret: secret,
-        scope: `${base}/.default`,
-      }),
-      cache: "no-store",
-    }
-  );
-
-  if (!tokenResponse.ok) {
-    throw new Error(`Dataverse authentication failed: ${tokenResponse.status}`);
-  }
-
-  const tokenData = await readJson(tokenResponse);
-  if (typeof tokenData.access_token !== "string") {
-    throw new Error("Dataverse access token missing");
-  }
-
+  const token = await getDataverseToken();
   const tokenMs = Math.round(performance.now() - tokenStart);
 
   const headers = {
-    Authorization: `Bearer ${tokenData.access_token}`,
+    Authorization: `Bearer ${token}`,
     Accept: "application/json",
     "Content-Type": "application/json",
     "OData-Version": "4.0",
@@ -165,42 +142,32 @@ export async function createDataversePaymentRecord(
   );
   contactUrl.searchParams.set("$top", "2");
 
-  const contactResponse = await fetch(contactUrl, {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!contactResponse.ok) {
-    throw new Error(`Dataverse Contact lookup failed: ${contactResponse.status}`);
+  let contactId: string;
+  let accountId: string;
+  let contactLastName: string | null = null;
+  let contactMs = 0;
+  if (input.trustedContact) {
+    // Trusted context is supplied only after a one-time Redis handoff was consumed
+    // and verified by the checkout route. Never accept these IDs from browser input.
+    contactId = requireGuid(input.trustedContact.contactId);
+    accountId = requireGuid(input.trustedContact.accountId);
+    contactLastName = input.trustedContact.lastName;
+  } else {
+    const contactResponse = await fetch(contactUrl, { headers, cache: "no-store" });
+    if (!contactResponse.ok) throw new Error(`Dataverse Contact lookup failed: ${contactResponse.status}`);
+    const contactData = await readJson(contactResponse);
+    const contacts: Contact[] = contactData.value ?? [];
+    if (contacts.length !== 1) throw new Error("Expected exactly one matching Contact");
+    const contact = contacts[0];
+    if (contact.statecode !== 0) throw new Error("Contact is inactive");
+    if (!contact._parentcustomerid_value) throw new Error("Contact has no Partner Account");
+    const parentType = contact["_parentcustomerid_value@Microsoft.Dynamics.CRM.lookuplogicalname"];
+    if (parentType !== "account") throw new Error("Contact parent is not an Account");
+    contactId = requireGuid(contact.contactid);
+    accountId = requireGuid(contact._parentcustomerid_value);
+    contactLastName = contact.lastname;
+    contactMs = Math.round(performance.now() - contactStart);
   }
-
-  const contactData = await readJson(contactResponse);
-  const contacts: Contact[] = contactData.value ?? [];
-
-  if (contacts.length !== 1) {
-    throw new Error("Expected exactly one matching Contact");
-  }
-
-  const contact = contacts[0];
-
-  if (contact.statecode !== 0) {
-    throw new Error("Contact is inactive");
-  }
-
-  if (!contact._parentcustomerid_value) {
-    throw new Error("Contact has no Partner Account");
-  }
-
-  const parentType =
-    contact["_parentcustomerid_value@Microsoft.Dynamics.CRM.lookuplogicalname"];
-
-  if (parentType !== "account") {
-    throw new Error("Contact parent is not an Account");
-  }
-
-  const contactId = requireGuid(contact.contactid);
-  const accountId = requireGuid(contact._parentcustomerid_value);
-  const contactMs = Math.round(performance.now() - contactStart);
 
   const paymentStart = performance.now();
 
@@ -255,7 +222,7 @@ export async function createDataversePaymentRecord(
 
   const record = {
     new_name:
-      `${contact.lastname ?? ""}${input.memberSubID}-` +
+      `${contactLastName ?? ""}${input.memberSubID}-` +
       easternTimestamp(),
     new_affinitygroup: input.affinityGroup ?? "",
     new_initialpaymentstatus: "unpaid",

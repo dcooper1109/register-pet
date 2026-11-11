@@ -1,5 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { getDataverseToken } from "@/lib/dataverseAuth";
 
 type Pet = {
   petName: string;
@@ -90,31 +91,9 @@ export async function addMemberAndPetsDataverse(
     throw new Error("Invalid Add Member input");
   }
 
-  const tokenResponse = await fetch(
-    `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: client,
-        client_secret: secret,
-        scope: `${base}/.default`,
-      }),
-      cache: "no-store",
-    }
-  );
-
-  if (!tokenResponse.ok) {
-    throw new Error(`Dataverse authentication failed: ${tokenResponse.status}`);
-  }
-
-  const token = (await json(tokenResponse)).access_token;
-  if (typeof token !== "string") {
-    throw new Error("Dataverse access token missing");
-  }
+  const tokenStart = performance.now();
+  const token = await getDataverseToken();
+  const tokenMs = Math.round(performance.now() - tokenStart);
 
   const api = `${base}/api/data/v9.2`;
   const headers = {
@@ -134,26 +113,12 @@ export async function addMemberAndPetsDataverse(
   );
   emailUrl.searchParams.set("$top", "2");
 
-  const emailResponse = await fetch(emailUrl, {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!emailResponse.ok) {
-    throw new Error(`Contact lookup failed: ${emailResponse.status}`);
-  }
-
-  const contacts = (await json(emailResponse)).value ?? [];
-
-  if (contacts.length > 0) {
-    return {
-      success: false,
-      message:
-        contacts.some((c: any) => c.statecode === 0)
-          ? "Email Exists"
-          : "Inactive User",
-    };
-  }
+  const emailStart = performance.now();
+  const emailPromise = (async () => {
+    const response = await fetch(emailUrl, { headers, cache: "no-store" });
+    if (!response.ok) throw new Error(`Contact lookup failed: ${response.status}`);
+    return (await json(response)).value ?? [];
+  })();
 
   const accountUrl = new URL(`${api}/accounts`);
   accountUrl.searchParams.set("$select", "accountid");
@@ -163,16 +128,21 @@ export async function addMemberAndPetsDataverse(
   );
   accountUrl.searchParams.set("$top", "2");
 
-  const accountResponse = await fetch(accountUrl, {
-    headers,
-    cache: "no-store",
-  });
+  const accountPromise = (async () => {
+    const response = await fetch(accountUrl, { headers, cache: "no-store" });
+    if (!response.ok) throw new Error(`Partner lookup failed: ${response.status}`);
+    return (await json(response)).value ?? [];
+  })();
 
-  if (!accountResponse.ok) {
-    throw new Error(`Partner lookup failed: ${accountResponse.status}`);
+  const [contacts, accounts] = await Promise.all([emailPromise, accountPromise]);
+  const lookupMs = Math.round(performance.now() - emailStart);
+  // Preserve the original duplicate-email rejection before creating any records.
+  if (contacts.length > 0) {
+    return {
+      success: false,
+      message: contacts.some((c: any) => c.statecode === 0) ? "Email Exists" : "Inactive User",
+    };
   }
-
-  const accounts = (await json(accountResponse)).value ?? [];
 
   if (accounts.length === 0) {
     return { success: false, message: "Partner does not exist" };
@@ -246,6 +216,7 @@ export async function addMemberAndPetsDataverse(
   body += `--${changeBoundary}--${CRLF}`;
   body += `--${batchBoundary}--${CRLF}`;
 
+  const batchStart = performance.now();
   const batchResponse = await fetch(`${api}/$batch`, {
     method: "POST",
     headers: {
@@ -257,6 +228,7 @@ export async function addMemberAndPetsDataverse(
   });
 
   const batchText = await batchResponse.text();
+  const batchMs = Math.round(performance.now() - batchStart);
 
   // A batch can return HTTP 200 even when an operation inside it failed.
   // Check the embedded HTTP statuses as well.
@@ -287,6 +259,10 @@ export async function addMemberAndPetsDataverse(
     JSON.stringify({
       operation: "add-member-and-pets",
       petCount: input.pets.length,
+      tokenMs,
+      lookupMs,
+      batchMs,
+      totalMs: Math.round(performance.now() - started),
       elapsedMs: Math.round(performance.now() - started),
     })
   );
@@ -295,6 +271,8 @@ export async function addMemberAndPetsDataverse(
     success: true,
     results: `Member (${input.memberSubID}) and pet(s) have been successfully registered.`,
     registrationToken: input.registrationToken,
+    contactId,
+    accountId,
     subscriptionType: input.subscriptionType,
     subscriptionPrice: input.subscriptionPrice,
   };

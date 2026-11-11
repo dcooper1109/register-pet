@@ -109,6 +109,17 @@ export async function POST(request:NextRequest) {
       console.error("[Marketing Add Member response mismatch]",{memberSubID});
       return fail("Add Member response does not match registration details",409);
     }
+    // Store trusted Dataverse IDs server-side. Checkout consumes this one-time key.
+    const contactId = String(verified.contactId || "");
+    const accountId = String(verified.accountId || "");
+    const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!guid.test(contactId) || !guid.test(accountId)) return fail("Missing verified Dataverse IDs", 502);
+    const handoffId = randomBytes(32).toString("hex");
+    const handoffStored = await Redis.fromEnv().set(`pvr:trusted-contact:${handoffId}`, {
+      contactId, accountId, lastName: last, registrationToken, memberSubID,
+      memberEmail: email.toLowerCase(), partnerName,
+    }, { ex: 300, nx: true });
+    if (handoffStored !== "OK") return fail("Unable to prepare secure payment handoff", 500);
     // Contact now exists. Stripe may safely create its related payment record.
     const checkoutStart=Date.now();
     const checkoutResponse=await fetch(`${base}/api/stripe/create-checkout-session`,{
@@ -117,7 +128,7 @@ export async function POST(request:NextRequest) {
       body:JSON.stringify({
         registrationToken,subscriptionType:selected.type,subscriptionPrice:selected.price,
         memberEmail:email,memberSubID,partnerName,affinityGroup:"D2C",
-        returnUrl,authenticationMethod:googleIdentity?"google":"password"
+        returnUrl,authenticationMethod:googleIdentity?"google":"password",trustedHandoffId:handoffId
       }),
       cache:"no-store"
     });

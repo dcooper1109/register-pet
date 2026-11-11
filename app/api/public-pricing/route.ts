@@ -8,6 +8,7 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.petvantagerx.com",
   "https://petvantagerx.com",
   "https://petvantagerx-new-website.vercel.app",
+  "https://dev-www.petvantagerx.com",
 ]);
 
 function corsHeaders(origin: string | null): HeadersInit {
