@@ -1,12 +1,8 @@
 import { Redis } from "@upstash/redis";
+import { getPricing, pricingPartner } from "@/lib/getPricing";
 import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
-const PRICES: Record<string, {type:string;price:string;minimum:number}> = {
-  one:{type:"One Pet",price:"4.99",minimum:1},
-  two:{type:"Two Pets",price:"7.99",minimum:2},
-  three:{type:"Three or More Pets",price:"11.99",minimum:3},
-};
 const COOKIE = "pvr_checkout_";
 function allowedReturnUrl(raw: string): string {
   try {
@@ -31,7 +27,11 @@ export async function POST(request:NextRequest) {
   if(raw.length>12000)return fail("Too many registration details",413);
   let draft:any;
   try{draft=JSON.parse(raw);}catch{return fail("Invalid registration details");}
-  const selected=PRICES[draft?.plan];
+  let prices: Awaited<ReturnType<typeof getPricing>>;
+  let partnerName: string;
+  try { [prices, partnerName] = await Promise.all([getPricing(), Promise.resolve(pricingPartner())]); }
+  catch (error) { console.error("Marketing pricing lookup failed:", error); return fail("Subscription pricing is temporarily unavailable",503); }
+  const selected=prices[draft?.plan as keyof typeof prices];
   if(!selected || draft?.termsAccepted!==true || draft?.termsVersion!=="2026-06-24")return fail("Please accept the current Terms and Conditions");
   const first=String(draft.memberFirst||"").trim(),last=String(draft.memberLast||"").trim(),email=String(draft.memberEmail||"").trim();
   const phone=String(draft.memberPhone||"").trim();
@@ -63,7 +63,7 @@ export async function POST(request:NextRequest) {
   }
   const memberSubID=`PRX${Date.now()}${randomBytes(6).toString("hex")}`;
   const registrationToken=memberSubID;
-  const payload={partnerName:"Direct Registration",affinityGroup:"D2C",subscriptionType:selected.type,subscriptionPrice:selected.price,memberFirst:first,memberLast:last,memberSubID,registrationToken,memberEmail:email,memberPhone:phone,mobilePhone:phone,pets,termsAccepted:true,termsVersion:"2026-06-24"};
+  const payload={partnerName,affinityGroup:"D2C",subscriptionType:selected.type,subscriptionPrice:selected.price,memberFirst:first,memberLast:last,memberSubID,registrationToken,memberEmail:email,memberPhone:phone,mobilePhone:phone,pets,termsAccepted:true,termsVersion:"2026-06-24"};
   const base=new URL(request.url).origin;
   const totalStart=Date.now();
   const logTiming=(step:string,started:number,details:Record<string,unknown>={})=>
@@ -116,7 +116,7 @@ export async function POST(request:NextRequest) {
       headers:{"Content-Type":"application/json",...(checkoutCookie?{"Cookie":checkoutCookie}:{})},
       body:JSON.stringify({
         registrationToken,subscriptionType:selected.type,subscriptionPrice:selected.price,
-        memberEmail:email,memberSubID,partnerName:"Direct Registration",affinityGroup:"D2C",
+        memberEmail:email,memberSubID,partnerName,affinityGroup:"D2C",
         returnUrl,authenticationMethod:googleIdentity?"google":"password"
       }),
       cache:"no-store"
