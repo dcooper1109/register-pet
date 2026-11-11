@@ -1,5 +1,6 @@
 import { createDataversePaymentRecord } from "@/lib/createDataversePaymentRecord";
 import Stripe from "stripe";
+import { getPricing, pricingPartner } from "@/lib/getPricing";
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
 
@@ -264,7 +265,7 @@ export async function POST(request: Request) {
     memberEmail = String(body.memberEmail ?? "").trim();
     if (googleIdentity && (
       googleIdentity.email.trim().toLowerCase() !== memberEmail.toLowerCase() ||
-      partnerName !== "Direct Registration"
+      partnerName !== pricingPartner()
     )) {
       return NextResponse.json({ success: false, message: "Google account does not match this registration." }, { status: 403 });
     }
@@ -291,19 +292,25 @@ export async function POST(request: Request) {
     // Marketing registrations use one identifier for both Add Member and Stripe.
     // Do not require the Add Member API to finish before creating a payment record.
     // Keep partner registrations compatible with their existing token conventions.
-    if (partnerName === "Direct Registration" && registrationToken !== memberSubID) {
+    if (partnerName === pricingPartner() && registrationToken !== memberSubID) {
       return NextResponse.json(
         { success: false, message: "Registration token must match member subscription ID." },
         { status: 400 }
       );
     }
 
-    // Fixed development prices for direct registrations. Never trust the browser amount.
-    // Do not apply these prices to partner registrations.
-    if (partnerName === "Direct Registration" && process.env.VERCEL_ENV !== "production") {
-      const fixed: Record<string, number> = {"One Pet":499,"Two Pets":799,"Three or More Pets":1199};
-      if (!(subscriptionType in fixed) || convertDollarsToCents(subscriptionPrice) !== fixed[subscriptionType]) {
-        return NextResponse.json({success:false,message:"Direct Registration price does not match development pricing."},{status:400});
+    // Marketing registrations must match current server-side Dataverse pricing.
+    // Existing non-marketing partner registrations retain their own pricing rules.
+    if (partnerName === pricingPartner()) {
+      let prices: Awaited<ReturnType<typeof getPricing>>;
+      try { prices = await getPricing(); }
+      catch (error) {
+        console.error("Checkout pricing lookup failed:", error);
+        return NextResponse.json({ success: false, message: "Subscription pricing is temporarily unavailable." }, { status: 503 });
+      }
+      const option = Object.values(prices).find(p => p.type === String(subscriptionType).trim());
+      if (!option || convertDollarsToCents(subscriptionPrice) !== convertDollarsToCents(option.price)) {
+        return NextResponse.json({ success: false, message: "Subscription price does not match current pricing." }, { status: 409 });
       }
     }
 
