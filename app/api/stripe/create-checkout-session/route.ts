@@ -13,6 +13,7 @@ type CreatePaymentRecordInput = {
   subscriptionPrice: string | number;
   partnerName: string;
   affinityGroup: string;
+  trustedContact?: { contactId: string; accountId: string; lastName: string };
 };
 
 type CreatePaymentRecordResult = {
@@ -221,6 +222,25 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    let trustedContact: CreatePaymentRecordInput["trustedContact"];
+    const trustedHandoffId = String(body?.trustedHandoffId ?? "");
+    if (trustedHandoffId) {
+      if (!/^[a-f0-9]{64}$/.test(trustedHandoffId)) {
+        return NextResponse.json({ success: false, message: "Invalid trusted handoff." }, { status: 403 });
+      }
+      const handoff = await Redis.fromEnv().getdel<{
+        contactId: string; accountId: string; lastName: string; registrationToken: string;
+        memberSubID: string; memberEmail: string; partnerName: string;
+      }>(`pvr:trusted-contact:${trustedHandoffId}`);
+      if (!handoff || handoff.registrationToken !== String(body.registrationToken ?? "").trim() ||
+          handoff.memberSubID !== String(body.memberSubID ?? "").trim() ||
+          handoff.memberEmail !== String(body.memberEmail ?? "").trim().toLowerCase() ||
+          handoff.partnerName !== String(body.partnerName ?? "").trim() ||
+          handoff.partnerName !== pricingPartner()) {
+        return NextResponse.json({ success: false, message: "Trusted registration handoff expired or mismatched." }, { status: 403 });
+      }
+      trustedContact = { contactId: handoff.contactId, accountId: handoff.accountId, lastName: handoff.lastName };
+    }
     const googleLookupStart=Date.now();
     // Only the server-side, HttpOnly Redis identity can select Google registration.
     const cookieHeader = request.headers.get("cookie") || "";
@@ -333,6 +353,7 @@ export async function POST(request: Request) {
       subscriptionPrice: verifiedSubscriptionPrice,
       partnerName,
       affinityGroup: affinityGroup ?? "",
+      ...(trustedContact ? { trustedContact } : {}),
     });
 
     logTiming("create-payment-record",createPaymentStart);

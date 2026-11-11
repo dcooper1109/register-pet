@@ -1,5 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { getDataverseToken } from "@/lib/dataverseAuth";
 
 type Pet = {
   petName: string;
@@ -91,32 +92,7 @@ export async function addMemberAndPetsDataverse(
   }
 
   const tokenStart = performance.now();
-  const tokenResponse = await fetch(
-    `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: client,
-        client_secret: secret,
-        scope: `${base}/.default`,
-      }),
-      cache: "no-store",
-    }
-  );
-
-  if (!tokenResponse.ok) {
-    throw new Error(`Dataverse authentication failed: ${tokenResponse.status}`);
-  }
-
-  const token = (await json(tokenResponse)).access_token;
-  if (typeof token !== "string") {
-    throw new Error("Dataverse access token missing");
-  }
-
+  const token = await getDataverseToken();
   const tokenMs = Math.round(performance.now() - tokenStart);
 
   const api = `${base}/api/data/v9.2`;
@@ -138,27 +114,11 @@ export async function addMemberAndPetsDataverse(
   emailUrl.searchParams.set("$top", "2");
 
   const emailStart = performance.now();
-  const emailResponse = await fetch(emailUrl, {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!emailResponse.ok) {
-    throw new Error(`Contact lookup failed: ${emailResponse.status}`);
-  }
-
-  const contacts = (await json(emailResponse)).value ?? [];
-  const emailMs = Math.round(performance.now() - emailStart);
-
-  if (contacts.length > 0) {
-    return {
-      success: false,
-      message:
-        contacts.some((c: any) => c.statecode === 0)
-          ? "Email Exists"
-          : "Inactive User",
-    };
-  }
+  const emailPromise = (async () => {
+    const response = await fetch(emailUrl, { headers, cache: "no-store" });
+    if (!response.ok) throw new Error(`Contact lookup failed: ${response.status}`);
+    return (await json(response)).value ?? [];
+  })();
 
   const accountUrl = new URL(`${api}/accounts`);
   accountUrl.searchParams.set("$select", "accountid");
@@ -168,18 +128,21 @@ export async function addMemberAndPetsDataverse(
   );
   accountUrl.searchParams.set("$top", "2");
 
-  const accountStart = performance.now();
-  const accountResponse = await fetch(accountUrl, {
-    headers,
-    cache: "no-store",
-  });
+  const accountPromise = (async () => {
+    const response = await fetch(accountUrl, { headers, cache: "no-store" });
+    if (!response.ok) throw new Error(`Partner lookup failed: ${response.status}`);
+    return (await json(response)).value ?? [];
+  })();
 
-  if (!accountResponse.ok) {
-    throw new Error(`Partner lookup failed: ${accountResponse.status}`);
+  const [contacts, accounts] = await Promise.all([emailPromise, accountPromise]);
+  const lookupMs = Math.round(performance.now() - emailStart);
+  // Preserve the original duplicate-email rejection before creating any records.
+  if (contacts.length > 0) {
+    return {
+      success: false,
+      message: contacts.some((c: any) => c.statecode === 0) ? "Email Exists" : "Inactive User",
+    };
   }
-
-  const accounts = (await json(accountResponse)).value ?? [];
-  const accountMs = Math.round(performance.now() - accountStart);
 
   if (accounts.length === 0) {
     return { success: false, message: "Partner does not exist" };
@@ -297,8 +260,7 @@ export async function addMemberAndPetsDataverse(
       operation: "add-member-and-pets",
       petCount: input.pets.length,
       tokenMs,
-      emailMs,
-      accountMs,
+      lookupMs,
       batchMs,
       totalMs: Math.round(performance.now() - started),
       elapsedMs: Math.round(performance.now() - started),
@@ -309,6 +271,8 @@ export async function addMemberAndPetsDataverse(
     success: true,
     results: `Member (${input.memberSubID}) and pet(s) have been successfully registered.`,
     registrationToken: input.registrationToken,
+    contactId,
+    accountId,
     subscriptionType: input.subscriptionType,
     subscriptionPrice: input.subscriptionPrice,
   };
