@@ -7,6 +7,7 @@ type Pet = {
   petSpecies: string;
   petBreed?: string;
   petSex?: string;
+  petBirthday?: string;
 };
 
 export type AddMemberInput = {
@@ -191,6 +192,7 @@ export async function addMemberAndPetsDataverse(
         new_petownername1: `${input.memberFirst} ${input.memberLast}`,
         ...(pet.petSex ? { new_petsex: pet.petSex } : {}),
         new_petspecies: pet.petSpecies,
+        ...(pet.petBirthday ? { new_petbirthday: pet.petBirthday } : {}),
         new_subscriptionstatus: 100000000,
       },
     })),
