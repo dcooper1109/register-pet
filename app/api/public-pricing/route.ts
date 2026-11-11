@@ -3,39 +3,73 @@ import { getPricing } from "@/lib/getPricing";
 
 export const dynamic = "force-dynamic";
 
-function cors(request: NextRequest): Record<string,string> {
-  const origin = request.headers.get("origin") || "";
-  const allowed = process.env.MARKETING_SITE_ORIGIN;
-  const local = process.env.VERCEL_ENV !== "production" &&
-    (origin === "http://localhost:8080" || origin === "http://127.0.0.1:8080");
-  if (origin && (origin === allowed || local)) return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Vary": "Origin"
-  };
-  return { "Vary": "Origin" };
-}
+const ALLOWED_ORIGINS = new Set([
+  "https://prod-www.petvantagerx.com",
+  "https://www.petvantagerx.com",
+  "https://petvantagerx.com",
+  "https://petvantagerx-new-website.vercel.app",
+]);
 
-export async function OPTIONS(request: NextRequest) {
-  return new NextResponse(null, { status: 204, headers: cors(request) });
+function corsHeaders(origin: string | null): HeadersInit {
+  const headers: Record<string, string> = {
+    "Cache-Control": "no-store",
+    "Vary": "Origin",
+  };
+
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+
+  return headers;
 }
 
 export async function GET(request: NextRequest) {
   const origin = request.headers.get("origin");
-  if (origin && !cors(request)["Access-Control-Allow-Origin"]) {
-    return NextResponse.json({ message: "Origin not allowed." }, { status: 403 });
-  }
+
   try {
-    const prices = await getPricing();
-    return NextResponse.json({
-      subscriptionOptions: [prices.one, prices.two, prices.three].map(p => ({
-        subscriptionType: p.type,
-        subscriptionPrice: Number(p.price)
-      }))
-    }, { headers: { ...cors(request), "Cache-Control": "no-store" } });
+    const pricing = await getPricing();
+
+    return NextResponse.json(
+      {
+        subscriptionOptions: Object.values(pricing).map((plan) => ({
+          subscriptionType: plan.type,
+          subscriptionPrice: Number(plan.price),
+        })),
+      },
+      {
+        status: 200,
+        headers: corsHeaders(origin),
+      }
+    );
   } catch (error) {
-    console.error("Public pricing lookup failed:", error);
-    return NextResponse.json({ message: "Subscription pricing is temporarily unavailable." },
-      { status: 503, headers: { ...cors(request), "Cache-Control": "no-store" } });
+    console.error("Public pricing API error:", error);
+
+    return NextResponse.json(
+      {
+        error: "Subscription pricing is temporarily unavailable.",
+      },
+      {
+        status: 503,
+        headers: corsHeaders(origin),
+      }
+    );
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get("origin");
+
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+    return new NextResponse(null, { status: 403 });
+  }
+
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      ...corsHeaders(origin),
+      "Access-Control-Max-Age": "3600",
+    },
+  });
 }
