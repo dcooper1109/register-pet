@@ -110,9 +110,9 @@ export async function addMemberAndPetsDataverse(
   emailUrl.searchParams.set("$select", "contactid,statecode");
   emailUrl.searchParams.set(
     "$filter",
-    `emailaddress1 eq '${escapeOData(input.memberEmail)}'`
+    `emailaddress1 eq '${escapeOData(input.memberEmail)}' and statecode eq 0`
   );
-  emailUrl.searchParams.set("$top", "2");
+  emailUrl.searchParams.set("$top", "1");
 
   const emailStart = performance.now();
   const emailPromise = (async () => {
@@ -137,11 +137,13 @@ export async function addMemberAndPetsDataverse(
 
   const [contacts, accounts] = await Promise.all([emailPromise, accountPromise]);
   const lookupMs = Math.round(performance.now() - emailStart);
-  // Preserve the original duplicate-email rejection before creating any records.
+  // Reject registration only when an Active Contact
+  // already exists with the same email address.
+  // Inactive Contacts do not block new registrations.
   if (contacts.length > 0) {
     return {
       success: false,
-      message: contacts.some((c: any) => c.statecode === 0) ? "Email Exists" : "Inactive User",
+      message: "Email Exists",
     };
   }
 
