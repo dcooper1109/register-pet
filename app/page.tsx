@@ -1096,12 +1096,10 @@ export default function Home() {
                     style={inputStyle}
                   >
                     <option value="">Select Pet Species</option>
-                    <option value="Bird">Bird</option>
                     <option value="Cat">Cat</option>
                     <option value="Dog">Dog</option>
-                    <option value="Fish">Fish</option>
                     <option value="Horse">Horse</option>
-                    <option value="Reptile">Reptile</option>
+                    <option value="Rabbit">Rabbit</option>
                     <option value="Other">Other</option>
                   </select>
                 </div>

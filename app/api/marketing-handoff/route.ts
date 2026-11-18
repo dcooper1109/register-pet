@@ -3,6 +3,13 @@ import { getPricing, pricingPartner } from "@/lib/getPricing";
 import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
+function validBirthday(value:string):boolean {
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if(!m)return false;
+  const y=Number(m[1]),mo=Number(m[2]),d=Number(m[3]);
+  const dt=new Date(Date.UTC(y,mo-1,d));
+  return y>=1900 && y<=9999 && dt.getUTCFullYear()===y && dt.getUTCMonth()+1===mo && dt.getUTCDate()===d;
+}
 const COOKIE = "pvr_checkout_";
 function allowedReturnUrl(raw: string): string {
   try {
@@ -41,7 +48,10 @@ export async function POST(request:NextRequest) {
   for(const p of draft.pets){
     const petName=String(p.petName||"").trim(),petSpecies=String(p.petSpecies||"").trim(),petBreed=String(p.petBreed||"").trim(),petSex=String(p.petSex||"").trim();
     if(!petName||!petSpecies||[petName,petSpecies,petBreed,petSex].some(v=>v.length>100))return fail("Invalid pet information");
-    pets.push({petName,petSpecies,petBreed,...(petSex?{petSex}:{})});
+    if(p.petBirthday!=null && typeof p.petBirthday!=="string")return fail("Invalid pet birthday");
+    const petBirthday=String(p.petBirthday||"").trim();
+    if(petBirthday && !validBirthday(petBirthday))return fail("Invalid pet birthday");
+    pets.push({petName,petSpecies,petBreed,...(petSex?{petSex}:{}),...(petBirthday?{petBirthday}:{})});
   }
   // Require a known Marketing origin. Browser Origin may be absent on some form navigations,
   // so validate the return URL and Origin when provided.

@@ -141,6 +141,11 @@ export async function POST(request: NextRequest) {
       return json({ message: "Invalid Auth0 password setup URL." }, 502);
     }
     const allowedHost = process.env.AUTH0_PASSWORD_SETUP_HOST;
+    console.log("AUTH0 PASSWORD DOMAIN CHECK:", {
+  returnedHost: parsed.hostname,
+  allowedHost: allowedHost ?? "(NOT SET)",
+  vercelEnv: process.env.VERCEL_ENV ?? "(LOCAL)",
+});
     if (!allowedHost || parsed.hostname !== allowedHost) {
       return json({ message: "Untrusted Auth0 password setup domain." }, 502);
     }
