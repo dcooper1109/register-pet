@@ -161,7 +161,8 @@ export async function addMemberAndPetsDataverse(
     throw new Error("Partner payment policy is missing");
   }
   const processPayment = paymentSetting;
-  const subscriptionStatus = processPayment ? "Pending" : "Active";
+  // Every Contact is created Pending, regardless of partner payment policy.
+  const initialSubscriptionStatus = "Pending";
 
   const accountId = requireGuid(accounts[0].accountid);
   const contactId = randomUUID();
@@ -178,7 +179,7 @@ export async function addMemberAndPetsDataverse(
     new_accesspetvantagerx: true,
     new_affinitygroup: input.affinityGroup,
     new_petsubscriptionid: input.memberSubID,
-    new_subscriptionstatus: subscriptionStatus,
+    new_subscriptionstatus: initialSubscriptionStatus,
     new_subscriptiontype: input.subscriptionType,
     new_termsaccepted: true,
     new_termsacceptedat: input.termsAcceptedAt || new Date().toISOString(),
@@ -264,6 +265,34 @@ export async function addMemberAndPetsDataverse(
     });
 
     throw new Error("Dataverse Contact/Pet transaction failed");
+  }
+
+  // For a no-payment partner, activate only AFTER the Pending Contact and
+  // its pets were successfully committed. Stripe-required members stay Pending
+  // until the existing verified payment-completion process activates them.
+  let subscriptionStatus = initialSubscriptionStatus;
+  if (!processPayment) {
+    const activationResponse = await fetch(`${api}/contacts(${contactId})`, {
+      method: "PATCH",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json; charset=utf-8",
+        "If-Match": "*",
+      },
+      body: JSON.stringify({ new_subscriptionstatus: "Active" }),
+      cache: "no-store",
+    });
+
+    if (!activationResponse.ok) {
+      console.error("[PVR DATAVERSE NO-PAYMENT ACTIVATION FAILED]", {
+        contactId,
+        status: activationResponse.status,
+      });
+      throw new Error(
+        "Member was created Pending but could not be activated. Contact support; do not register again."
+      );
+    }
+    subscriptionStatus = "Active";
   }
 
   console.log(
