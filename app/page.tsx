@@ -424,6 +424,7 @@ export default function Home() {
     const payload = {
       ...addForm,
 
+      registrationToken: addForm.memberSubID,
       mobilePhone: addForm.memberPhone,
 
       pets: pets.map((pet) => ({
