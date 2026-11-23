@@ -104,12 +104,21 @@ export async function POST(req: Request) {
      * The server creates termsAcceptedAt so a browser cannot submit
      * an altered acceptance date.
      */
+    // Payment policy is resolved from Dataverse by the direct backend.
+    // Never authorize payment bypass using browser-supplied parameters.
+    if (action === "addMemberAndPet" && process.env.ADD_MEMBER_BACKEND !== "direct") {
+      return Response.json(
+        { success: false, message: "Partner payment policy requires the direct Dataverse backend." },
+        { status: 503 }
+      );
+    }
+
     const outgoingPayload =
       action === "addMemberAndPet"
         ? {
             ...payload,
 
-            subscriptionStatus: "Pending",
+            subscriptionStatus: "Pending", // Dataverse overrides this using the Account payment policy
             termsAccepted: true,
             termsVersion: payload.termsVersion.trim(),
             termsAcceptedAt: new Date().toISOString(),

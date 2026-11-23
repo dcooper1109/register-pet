@@ -82,7 +82,7 @@ export async function addMemberAndPetsDataverse(
     !input.memberEmail?.trim() ||
     !/^[A-Za-z0-9_-]{1,100}$/.test(input.memberSubID) ||
     input.registrationToken !== input.memberSubID ||
-    input.subscriptionStatus !== "Pending" ||
+    !(["Pending", "Active"].includes(input.subscriptionStatus)) ||
     input.termsAccepted !== true ||
     !input.termsVersion?.trim() ||
     !Array.isArray(input.pets) ||
@@ -122,7 +122,7 @@ export async function addMemberAndPetsDataverse(
   })();
 
   const accountUrl = new URL(`${api}/accounts`);
-  accountUrl.searchParams.set("$select", "accountid");
+  accountUrl.searchParams.set("$select", "accountid,new_processpayment");
   accountUrl.searchParams.set(
     "$filter",
     `name eq '${escapeOData(input.partnerName)}'`
@@ -155,6 +155,14 @@ export async function addMemberAndPetsDataverse(
     throw new Error("Multiple Partner Accounts matched");
   }
 
+  // Fail closed when the partner payment policy is not configured.
+  const paymentSetting = accounts[0].new_processpayment;
+  if (typeof paymentSetting !== "boolean") {
+    throw new Error("Partner payment policy is missing");
+  }
+  const processPayment = paymentSetting;
+  const subscriptionStatus = processPayment ? "Pending" : "Active";
+
   const accountId = requireGuid(accounts[0].accountid);
   const contactId = randomUUID();
 
@@ -170,7 +178,7 @@ export async function addMemberAndPetsDataverse(
     new_accesspetvantagerx: true,
     new_affinitygroup: input.affinityGroup,
     new_petsubscriptionid: input.memberSubID,
-    new_subscriptionstatus: input.subscriptionStatus,
+    new_subscriptionstatus: subscriptionStatus,
     new_subscriptiontype: input.subscriptionType,
     new_termsaccepted: true,
     new_termsacceptedat: input.termsAcceptedAt || new Date().toISOString(),
@@ -275,6 +283,8 @@ export async function addMemberAndPetsDataverse(
     success: true,
     results: `Member (${input.memberSubID}) and pet(s) have been successfully registered.`,
     registrationToken: input.registrationToken,
+    processPayment,
+    subscriptionStatus,
     contactId,
     accountId,
     subscriptionType: input.subscriptionType,
