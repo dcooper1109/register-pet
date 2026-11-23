@@ -215,30 +215,20 @@ export default function Home() {
 
     if (isCancelledCheckout) return;
 
-    if (!partnerName || !affinityGroup) {
-      setAddForm((prev) => ({
-        ...prev,
-        partnerName: prev.partnerName || "Direct Registration",
-        affinityGroup: prev.affinityGroup || "D2C",
-        memberSubID: generateSubscriptionId(),
-      }));
-
-      setIsError(false);
-      setResult("No request sent yet.");
-      return;
-    }
-
     const generatedSubID =
-      campaign.toLowerCase() === "x" ? generateSubscriptionId() : campaign;
+      !campaign || campaign.toLowerCase() === "x"
+        ? generateSubscriptionId()
+        : campaign;
 
-    const cleanedLastName = lastName.toLowerCase() === "x" ? "" : lastName;
+    const cleanedLastName =
+      lastName.toLowerCase() === "x" ? "" : lastName;
 
     setAddForm((prev) => ({
       ...prev,
-      partnerName: partnerName || prev.partnerName,
-      affinityGroup: affinityGroup || prev.affinityGroup,
-      memberSubID: generatedSubID || prev.memberSubID,
-      memberLast: cleanedLastName || prev.memberLast,
+      partnerName: partnerName || "Direct Registration",
+      affinityGroup: affinityGroup || "D2C",
+      memberSubID: generatedSubID,
+      memberLast: cleanedLastName,
     }));
   }, []);
 
